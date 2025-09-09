@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from scentpick.routers import chatbot
 
-app = FastAPI()
+# app = FastAPI()
+app = FastAPI(title="Perfume Chat bot API") # yyh
 
 # 라우터 등록
 app.include_router(chatbot.router)
