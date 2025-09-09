@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends
 from scentpick.routers import chatbot
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from dotenv import load_dotenv
 from database import SessionLocal
 
@@ -28,5 +29,5 @@ def get_db():
 # RDS 연결 확인용 엔드포인트
 @app.get("/check-db")
 def check_db(db: Session = Depends(get_db)):
-    result = db.execute("SELECT COUNT(*) FROM perfumes").fetchone()
+    result = db.execute(text("SELECT COUNT(*) FROM perfumes")).fetchone()
     return {"perfume_count": result[0]}
