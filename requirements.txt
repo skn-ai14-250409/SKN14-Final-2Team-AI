@@ -77,3 +77,4 @@ wheel==0.45.1
 xgboost==3.0.5
 xxhash==3.5.0
 zstandard==0.24.0
+PyMySQL==1.1.2
