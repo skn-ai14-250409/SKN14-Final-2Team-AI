@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any, Dict, List
 import json
 
 from fastapi import APIRouter, HTTPException, Header, Depends
@@ -81,6 +81,7 @@ class ChatResponse(BaseModel):
     conversation_id: int
     final_answer: str
     success: bool
+    perfume_list: Optional[List[Dict[str, Any]]] = None
 
 # -----------------------------
 # 메인 엔드포인트 (/chat)
@@ -140,6 +141,14 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         ai_answer = ai_output["answer"]
         parsed_slots = ai_output.get("parsed_slots", {})
         search_results = ai_output.get("search_results", {"matches": []})
+
+        perfume_list = []
+        for m in search_results.get("matches", []):
+            meta = m.get("metadata", {})
+            perfume_list.append({
+                "id": int(meta.get("no")) if meta.get("no") is not None else None,
+                "name": meta.get("name")
+            })
 
         # 4. AI 응답 저장
         res = db.execute(
@@ -208,14 +217,24 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
 
         db.commit()
 
-        return ChatResponse(conversation_id=conv_id, final_answer=ai_answer, success=True)
+        return ChatResponse(
+            conversation_id=conv_id,
+            final_answer=ai_answer,
+            success=True,
+            perfume_list=perfume_list
+        )
 
     except HTTPException:
         db.rollback()
         raise
     except Exception as e:
         db.rollback()
-        return ChatResponse(conversation_id=0, final_answer=f"Error: {str(e)}", success=False)
+        return ChatResponse(
+            conversation_id=0,
+            final_answer=f"Error: {str(e)}",
+            success=False,
+            perfume_list=[]
+        )
 
 # -----------------------------
 # 추가 엔드포인트 (/chat.run)
