@@ -36,6 +36,8 @@ def LLM_parser_node(state: AgentState) -> AgentState:
         
         # 4단계: Pinecone 검색
         search_results = query_pinecone(query_vector, filtered_json, top_k=5)
+        if hasattr(search_results, "to_dict"):
+            search_results = search_results.to_dict()
         
         # 5단계: 최종 응답 생성
         final_response = generate_response(user_query, search_results)
@@ -105,13 +107,29 @@ def LLM_parser_node(state: AgentState) -> AgentState:
 {final_response_with_price}"""
 
         msgs = state["messages"] + [AIMessage(content=summary)]
-        return {"messages": msgs, "next": None, "router_json": state.get("router_json")}
+        return {
+            **state,
+            "messages": msgs,
+            "next": None,
+            "router_json": state.get("router_json"),
+            "parsed_slots": parsed_json,           # 파싱된 슬롯
+            "search_results": search_results,      # 벡터DB 검색 결과
+            "final_answer": final_response_with_price  # 최종 응답
+        }
         
     except Exception as e:
         error_msg = f"[LLM_parser] RAG 파이프라인 실행 중 오류: {str(e)}"
         print(f"❌ LLM_parser 전체 오류: {e}")
         msgs = state["messages"] + [AIMessage(content=error_msg)]
-        return {"messages": msgs, "next": None, "router_json": state.get("router_json")}
+        return {
+            **state,
+            "messages": msgs,
+            "next": None,
+            "router_json": state.get("router_json"),
+            "parsed_slots": {},
+            "search_results": {"matches": []},
+            "final_answer": error_msg
+        }
     
     
 
