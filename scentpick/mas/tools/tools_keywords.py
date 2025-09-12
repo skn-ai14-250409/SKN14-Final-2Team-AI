@@ -1,10 +1,10 @@
 from ..config import llm
-from ..prompts import price_prompt
+from ..prompts.price_prompt import keyword_extraction_prompt
 
 def extract_search_keyword_with_llm(user_query: str) -> str:
     """LLM을 사용해서 검색 키워드 추출"""
     try:
-        chain = price_prompt | llm
+        chain = keyword_extraction_prompt | llm
         response = chain.invoke({"query": user_query})
         keyword = response.content.strip()
         
