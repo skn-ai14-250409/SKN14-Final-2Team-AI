@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 
 
 # ===== 경로 설정 =====
-BASE_DIR = Path(__file__).resolve().parent / "ml_models"
+BASE_DIR = Path(__file__).resolve().parent.parent / "ml_models"  # ✅ 한 단계 더 올라가야 함
 DEFAULT_MODEL_PATH = BASE_DIR / "models.pkl"
 DEFAULT_PERFUME_JSON = BASE_DIR / "perfumes.json"
 

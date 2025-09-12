@@ -16,7 +16,12 @@ from sqlalchemy import text
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 
 # LangGraph 실행 객체(app) 가져오기 (graph.compile() 결과)
-from scentpick.mas.perfume_chatbot import app as graph_app
+# 스샷 기준: scentpick/mas/tools/perfume_chatbot.py
+# 기존 경로를 쓰고 있었다면 호환 위해 try/except 처리
+try:
+    from scentpick.mas.tools.perfume_chatbot import app as graph_app  # ✅ 스샷 경로
+except Exception:
+    from scentpick.mas.perfume_chatbot import app as graph_app        # ⛳️ 기존 경로 호환
 
 # DB 세션 팩토리
 from database import SessionLocal
@@ -54,14 +59,20 @@ class ChatOut(BaseModel):
 
 
 @router.post("/chat", response_model=ChatOut)
-def run_chat(body: ChatIn):
+def run_chat(body: ChatIn, x_thread_id: Optional[str] = Header(None)):
+    """
+    단순 테스트용. 멀티턴 확인을 위해 x-thread-id 헤더를 thread_id로 사용.
+    """
     init_state = {
         "messages": [HumanMessage(content=body.query)],
         "next": None,
         "router_json": None,
     }
+    # ✅ 멀티턴: 헤더로 온 thread_id(없으면 임시 UUID)로 상태 이어받기
+    config = {"configurable": {"thread_id": x_thread_id or str(uuid.uuid4())}}
+
     try:
-        out = graph_app.invoke(init_state)
+        out = graph_app.invoke(init_state, config=config)
         ai_msgs = [m for m in out.get("messages", []) if isinstance(m, AIMessage)]
         if not ai_msgs:
             raise HTTPException(500, "No AI response generated.")
@@ -263,15 +274,16 @@ def chat_run(payload: ChatRunIn, db: Session = Depends(get_db), x_idempotency_ke
         {"cid": conv_id, "content": payload.message.content, "idem": idem, "meta": meta_json_user, "now": now},
     )
 
-    # 3) LangGraph 실행
+    # 3) LangGraph 실행 (✅ thread_id로 멀티턴 상태 이어받기)
     init_state = {
         "messages": [HumanMessage(content=payload.message.content)],
         "next": None,
         "router_json": None,
     }
+    config = {"configurable": {"thread_id": thread_id}}  # ✅ 핵심!
 
     try:
-        out_state = graph_app.invoke(init_state)
+        out_state = graph_app.invoke(init_state, config=config)  # ✅ config 전달
     except Exception as e:
         db.rollback()
         raise HTTPException(500, f"graph error: {e}")
