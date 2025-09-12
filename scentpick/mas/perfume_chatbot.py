@@ -1,10 +1,12 @@
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+
 from .nodes.supervisor_node import supervisor_node
 from .nodes.llm_parser_node import LLM_parser_node
 from .nodes.faq_node import FAQ_agent_node
 from .nodes.human_fallback_node import human_fallback_node
 from .nodes.price_agent_node import price_agent_node
-from .nodes.ml_agent_node import ML_agent_node
+from .nodes.ml_agent_node import ML_agent_node 
 from .state import AgentState
 
 # ----------  Build Graph ----------
@@ -43,6 +45,6 @@ for node in ["LLM_parser", "FAQ_agent", "human_fallback", "price_agent", "ML_age
     graph.add_edge(node, END)
 
 # 그래프 컴파일
-app = graph.compile()
+app = graph.compile(checkpointer=MemorySaver())
 
 
