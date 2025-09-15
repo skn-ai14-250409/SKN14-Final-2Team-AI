@@ -5,7 +5,8 @@ from ..config import llm
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import json
-from ..prompts.rec_echo_prompt import REC_ECHO_SUMMARY_SYSTEM_PROMPT    
+from ..prompts.rec_echo_prompt import REC_ECHO_SUMMARY_SYSTEM_PROMPT
+
 def _to_int_ml(v):
     try:
         if v is None:
@@ -50,23 +51,6 @@ def _format_plain(items: List[Dict[str, Any]], highlight_idx: Optional[int] = No
     lines = [_fmt_item_line(it, i, highlight_idx) for i, it in enumerate(items, 1)]
     return "\n".join(lines)
 
-def _build_action_hints(items: List[Dict[str, Any]], highlight_idx: Optional[int]) -> str:
-    n = len(items)
-    if n == 0:
-        return ""
-
-    # 예시 인덱스 선택(친근한 팔로업 문구용)
-    h = highlight_idx if (isinstance(highlight_idx, int) and 1 <= highlight_idx <= n) else 1
-    other = 2 if n >= 2 and h != 2 else (1 if h != 1 else (3 if n >= 3 else 1))
-    last  = n if n >= 2 and n != h else (n-1 if n >= 2 else 1)
-
-    examples = [
-        f"\"{other}번 가격은?\"",
-        f"\"{last}번 노트 알려줘\"",
-        f"\"{h}번이랑 {last}번 비교\""
-    ]
-    return "예) " + ", ".join(examples)
-
 def _summarize_with_llm(items: List[Dict[str, Any]], last_ai: Optional[str], highlight_idx: Optional[int]) -> Optional[str]:
     """직전 AI 답변(last_ai)와 items JSON에 '있는 내용만' 기반으로 1줄 요약.
     새 정보 추측 금지. "정보 없음" 같은 부정적 라벨 출력 금지."""
@@ -91,6 +75,7 @@ def _summarize_with_llm(items: List[Dict[str, Any]], last_ai: Optional[str], hig
     # 혹시 모를 부정 라벨 제거(더 부드럽게 표기)
     txt = txt.replace(" — 정보 없음", "").replace(" — N/A", "").replace(" — n/a", "")
     return txt
+
 def rec_echo_node(state: AgentState) -> AgentState:
     # 0) followup 하이라이트 인덱스(선택)
     router = state.get("router_json") or {}
@@ -144,7 +129,7 @@ def rec_echo_node(state: AgentState) -> AgentState:
         # LLM 요약 실패 시 플레인 포맷
         pretty = _format_plain(items, highlight_idx)
 
-    # 5) 헤더/추천 포커스/예시 팔로업 문구
+    # 5) 헤더/추천 포커스
     header = f"🔁 방금 추천드린 향수 요약 (총 {len(items)}개)\n"
     focus = ""
     if highlight_idx is not None and 1 <= highlight_idx <= len(items):
@@ -152,10 +137,8 @@ def rec_echo_node(state: AgentState) -> AgentState:
         focus_name = f"{focus_item.get('brand','')} {focus_item.get('name','')}".strip()
         focus = f"\n⭐ 추천 포커스: {highlight_idx}번 {focus_name}\n"
 
-    hints = _build_action_hints(items, highlight_idx)
-    hint_block = f"\n💡 {hints}" if hints else ""
-
-    final = header + "\n" + pretty + focus + hint_block
+    # ✅ 예시 힌트(예: "2번 가격은?") 제거
+    final = header + "\n" + pretty + focus
 
     ret = {
         "messages": [AIMessage(content=final)],
