@@ -1,22 +1,65 @@
+# scentpick/mas/nodes/ML_agent_node.py
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from ..state import AgentState
 import json
 from ..prompts.ML_agent_prompt import ML_agent_system_prompt
-from ..tools.tools_recommend import recommend_perfume_vdb   # ← 새 도구로 교체
+from ..tools.tools_recommend import recommend_perfume_vdb   # Pinecone VDB 기반 추천 도구
 from ..config import llm
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+def _to_int_ml(v) -> Optional[int]:
+    try:
+        if v is None: return None
+        if isinstance(v, (int, float)): return int(v)
+        s = str(v).lower().replace("ml", "").strip()
+        return int(float(s))
+    except Exception:
+        return None
+
+def _normalize_item(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """다양한 키 스키마를 표준 스키마로 정규화"""
+    if not isinstance(raw, dict):
+        return None
+    brand = (raw.get("brand") or raw.get("Brand") or raw.get("maker") or "").strip()
+    name  = (raw.get("name") or raw.get("Name") or raw.get("perfume") or raw.get("title") or "").strip()
+    if not name:
+        return None
+    size  = _to_int_ml(raw.get("size") or raw.get("size_ml") or raw.get("ml") or raw.get("Size"))
+    url   = raw.get("detail_url") or raw.get("url") or raw.get("link") or raw.get("detailUrl")
+    return {"brand": brand, "name": name, "size": size, "detail_url": url}
+
+def _extract_candidates_from_ml_result(ml_result: Any, top_n: int = 3) -> List[Dict[str, Any]]:
+    """
+    ml_result의 가능한 구조를 폭넓게 지원:
+    - {"items":[...]}, {"top_items":[...]}, {"recommendations":[...]}, {"recs":[...]}, {"candidates":[...]}
+    """
+    if not isinstance(ml_result, dict):
+        return []
+    # 후보 리스트 찾기
+    for key in ("items", "top_items", "recommendations", "recs", "candidates"):
+        arr = ml_result.get(key)
+        if isinstance(arr, list) and arr:
+            normed = []
+            for it in arr:
+                n = _normalize_item(it)
+                if n:
+                    normed.append(n)
+            if normed:
+                return normed[:top_n]
+    return []
 
 def ML_agent_node(state: AgentState) -> AgentState:
-    """ML agent - Pinecone VDB를 통해 상위 3개 추천 후, LLM이 설명문 생성"""
-    user_query = None
-    for m in reversed(state["messages"]):
+    """ML agent - Pinecone VDB를 통해 상위 N개 추천 후, LLM이 설명문 생성 (멀티턴/rec_history 누적)"""
+    # 0) 최신 사용자 메시지
+    user_query = "(empty)"
+    for m in reversed(state.get("messages", [])):
         if isinstance(m, HumanMessage):
             user_query = m.content
             break
-    if not user_query:
-        user_query = "(empty)"
 
     try:
-        # 1) VDB 기반 추천 (라벨 재임베딩 + Pinecone 검색)
+        # 1) VDB 기반 추천
         ml_result = recommend_perfume_vdb.invoke({
             "user_text": user_query,
             "topk_labels": 3,
@@ -25,9 +68,12 @@ def ML_agent_node(state: AgentState) -> AgentState:
             "alpha_labels": 0.8,
             "index_name": "perfume-vectordb2",
         })
-        ml_json_str = json.dumps(ml_result, ensure_ascii=False)
 
-        # 2) LLM 요약/설명 생성
+        # 2) 후보 표준화 (rec_echo가 바로 읽을 수 있게)
+        candidates = _extract_candidates_from_ml_result(ml_result, top_n=3)
+
+        # 3) LLM 설명 생성 (시스템+휴먼 메시지)
+        ml_json_str = json.dumps(ml_result, ensure_ascii=False)
         human_prompt = (
             f"사용자 질문:\n{user_query}\n\n"
             f"ML 추천 JSON:\n```json\n{ml_json_str}\n```"
@@ -36,19 +82,40 @@ def ML_agent_node(state: AgentState) -> AgentState:
             SystemMessage(content=ML_agent_system_prompt),
             HumanMessage(content=human_prompt)
         ])
+        explanation = getattr(llm_out, "content", "").strip()
 
-        msgs = state["messages"] + [AIMessage(content=llm_out.content)]
+        # 4) 사용자에게 보여줄 최종 텍스트 (번호 매겨진 목록 + 설명)
+        if candidates:
+            lines = []
+            for i, r in enumerate(candidates, 1):
+                line = f"{i}. {r.get('brand','')} {r.get('name','')}"
+                if r.get("size"):
+                    line += f" {r['size']}ml"
+                lines.append(line)
+            header = "👃 추천 결과 (상위 3개):\n\n" + "\n".join(lines)
+            final_answer = header + ("\n\n" + explanation if explanation else "")
+        else:
+            final_answer = "추천 결과를 찾지 못했어요." + ("\n\n" + explanation if explanation else "")
+
+        # 5) rec_history에 누적 (모드 A: 다음 턴 '방금 추천?' 회상용)
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "source": "ML_agent",
+            "items": candidates,  # 표준 스키마
+        }
+
+        # 6) 델타 메시지만 반환
         return {
-            "messages": msgs,
-            "next": None,
-            "router_json": state.get("router_json")
+            "messages": [AIMessage(content=final_answer)],
+            "final_answer": final_answer,
+            "rec_history": [entry],        # 리스트 누적
+            "last_agent": "ML_agent",      # supervisor 프롬프트용
         }
 
     except Exception as e:
-        error_msg = f"❌ ML 추천 생성 중 오류가 발생했습니다: {str(e)}"
-        msgs = state["messages"] + [AIMessage(content=error_msg)]
+        err = f"❌ ML 추천 생성 중 오류가 발생했습니다: {e}"
         return {
-            "messages": msgs,
-            "next": None,
-            "router_json": state.get("router_json")
+            "messages": [AIMessage(content=err)],
+            "final_answer": err,
+            "last_agent": "ML_agent",
         }

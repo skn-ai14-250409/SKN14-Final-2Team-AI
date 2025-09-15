@@ -1,40 +1,33 @@
 from ..config import llm
-from langchain_core.messages import  HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from ..state import AgentState
 from ..prompts.faq_prompt import faq_prompt
 
-
 def FAQ_agent_node(state: AgentState) -> AgentState:
     """FAQ agent - LLM 기본 지식으로 향수 관련 질문 답변"""
-    user_query = None
-    for m in reversed(state["messages"]):
+    # 안전하게 최신 사용자 메시지 추출
+    user_query = "(empty)"
+    for m in reversed(state.get("messages", [])):
         if isinstance(m, HumanMessage):
             user_query = m.content
             break
-    if not user_query:
-        user_query = "(empty)"
-    
-    try:
-        # LLM에게 향수 지식 전문가로서 답변하도록 프롬프트 설정
 
-        
+    try:
         chain = faq_prompt | llm
-        result = chain.invoke({"question": user_query})
-        
-        # 결과를 포맷팅
-        final_answer = f"📚 **향수 지식**\n\n{result.content}"
-        
-        msgs = state["messages"] + [AIMessage(content=final_answer)]
+        ai = chain.invoke({"question": user_query})
+        body = getattr(ai, "content", str(ai))
+
+        final_answer = f"📚 **향수 지식**\n\n{body}"
+
+        # ✅ add_messages 사용 시, 이번 턴에 “추가될” 메시지만 반환
         return {
-            "messages": msgs, 
-            "next": None, 
-            "router_json": state.get("router_json")
+            "messages": [AIMessage(content=final_answer)],
+            "final_answer": final_answer,
+            # router_json은 바뀐 게 없으면 굳이 다시 넣지 않아도 됩니다.
         }
     except Exception as e:
-        error_msg = f"❌ 향수 지식 답변 생성 중 오류가 발생했습니다: {str(e)}"
-        msgs = state["messages"] + [AIMessage(content=error_msg)]
+        error_msg = f"❌ 향수 지식 답변 생성 중 오류가 발생했습니다: {e}"
         return {
-            "messages": msgs, 
-            "next": None, 
-            "router_json": state.get("router_json")
+            "messages": [AIMessage(content=error_msg)],
+            "final_answer": error_msg,
         }
