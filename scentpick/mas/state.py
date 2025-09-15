@@ -1,14 +1,38 @@
+# scentpick/mas/state.py
+from typing import TypedDict, List, Optional, Dict, Any, Annotated
 from langchain_core.messages import BaseMessage
 from langgraph.graph import add_messages
 
-from typing import TypedDict, List, Optional, Dict, Any, Annotated
+def safe_dict_merge(prev: Optional[Dict[str, Any]], new: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(prev, dict):
+        prev = {}
+    if not isinstance(new, dict):
+        return prev
+    merged = prev.copy()
+    merged.update(new)
+    return merged
 
-# ---------- 1) State ----------
+def safe_list_concat(prev: Optional[List[Any]], new: Optional[List[Any]]) -> List[Any]:
+    if not isinstance(prev, list):
+        prev = []
+    if not isinstance(new, list):
+        return prev
+    return prev + new
+
 class AgentState(TypedDict, total=False):
-    messages: Annotated[List[BaseMessage], add_messages]  # 대화 로그
-    next: Optional[str]                                   # 라우팅 결정 키
-    router_json: Optional[Dict[str, Any]]                 # supervisor/router 결과
+    messages: Annotated[List[BaseMessage], add_messages]
 
-    parsed_slots: Optional[Dict[str, Any]]                # LLM_parser에서 파싱된 슬롯 정보
-    search_results: Optional[Dict[str, Any]]              # Pinecone 검색 결과
-    final_answer: Optional[str]                           # 최종 생성된 응답 텍스트
+    next: Optional[str]
+    router_json: Optional[Dict[str, Any]]
+
+    parsed_slots: Annotated[Dict[str, Any], safe_dict_merge]
+    search_results: Annotated[Dict[str, Any], safe_dict_merge]
+
+    # ✅ 추천 히스토리 (마지막 추천을 rec_echo가 읽어감)
+    rec_history: Annotated[List[Dict[str, Any]], safe_list_concat]
+
+    # (선택) 지난 턴 마지막 실행 노드명: supervisor 프롬프트에 넣어주기 용도
+    last_agent: Optional[str]
+
+    final_answer: Optional[str]
+    last_error: Optional[str]

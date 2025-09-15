@@ -10,6 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from ..config import llm, index
 from .tools_metafilters import build_pinecone_filter  # 필터 함수 별도 모듈로 분리했다고 가정
 
+from ..prompts.tools_rag_prompt import RESPONSE_SYSTEM
 
 def query_pinecone(vector, filtered_json: dict, top_k: int = 5):
     """Pinecone 벡터 검색 + 메타데이터 필터 적용"""
@@ -49,32 +50,12 @@ def format_search_results(pinecone_results):
     return "\n\n".join(formatted_results)
 
 
-# 🔹 RAG 응답 프롬프트
-response_prompt = ChatPromptTemplate.from_messages([
-    ("system", """너는 향수 전문가야. 사용자의 질문에 대해 검색된 향수 정보를 바탕으로 친절하고 전문적인 추천을 해줘.
-
-추천할 때 다음을 포함해줘:
-1. 왜 이 향수를 추천하는지
-2. 향의 특징과 느낌
-3. 어떤 상황에 적합한지
-4. 가격대나 용량 관련 조언 (있다면)
-
-자연스럽고 친근한 톤으로 답변해줘."""),
-    ("user", """사용자 질문: {original_query}
-
-검색된 향수 정보:
-{search_results}
-
-위 정보를 바탕으로 향수를 추천해줘.""")
-])
-
-
 def generate_response(original_query: str, search_results):
     """검색 결과를 바탕으로 최종 응답 생성"""
     try:
         formatted_results = format_search_results(search_results)
 
-        chain = response_prompt | llm
+        chain = RESPONSE_SYSTEM | llm
         response = chain.invoke({
             "original_query": original_query,
             "search_results": formatted_results
