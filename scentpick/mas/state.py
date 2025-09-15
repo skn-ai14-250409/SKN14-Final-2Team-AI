@@ -36,3 +36,5 @@ class AgentState(TypedDict, total=False):
 
     final_answer: Optional[str]
     last_error: Optional[str]
+
+    perfume_list: Optional[List[Dict[str, Any]]]
