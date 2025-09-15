@@ -5,7 +5,7 @@ from ..config import llm
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import json
-
+from ..prompts.rec_echo_prompt import REC_ECHO_SUMMARY_SYSTEM_PROMPT    
 def _to_int_ml(v):
     try:
         if v is None:
@@ -69,25 +69,19 @@ def _build_action_hints(items: List[Dict[str, Any]], highlight_idx: Optional[int
 
 def _summarize_with_llm(items: List[Dict[str, Any]], last_ai: Optional[str], highlight_idx: Optional[int]) -> Optional[str]:
     """직전 AI 답변(last_ai)와 items JSON에 '있는 내용만' 기반으로 1줄 요약.
-    새 정보 추측 금지. \"정보 없음\" 같은 부정적 라벨 출력 금지."""
+    새 정보 추측 금지. "정보 없음" 같은 부정적 라벨 출력 금지."""
     if not last_ai:
         return None
 
-    sys = SystemMessage(content=(
-        "너는 추천 목록을 한국어로 친절하게 '짧은 한 줄 요약'으로 재정리하는 비서다.\n"
-        "규칙:\n"
-        "1) 입력으로 주어진 items(JSON)와 last_ai 텍스트에 '실제로 등장하는 정보만' 사용하라.\n"
-        "2) 새 정보를 지어내거나 추측하지 마라.\n"
-        "3) 정보가 부족하면 '정보 없음', 'N/A' 같은 라벨을 쓰지 말고 제품명과 용량만 자연스럽게 표기하라.\n"
-        "4) 출력 형식: 각 줄에 '번호. 브랜드 제품명 용량ml — (가능하면) 한 줄 요약'.\n"
-        "5) highlight_idx가 주어지면 해당 줄 맨 앞에 '⭐ '를 붙여라.\n"
-        "6) 최대 5개까지만 출력.\n"
-    ))
+    # ✅ 프롬프트 분리본 사용
+    sys = SystemMessage(content=REC_ECHO_SUMMARY_SYSTEM_PROMPT)
+
     user = HumanMessage(content=(
         "items(JSON):\n" + json.dumps(items[:5], ensure_ascii=False) + "\n\n" +
         "highlight_idx: " + (str(highlight_idx) if highlight_idx is not None else "null") + "\n\n" +
         "last_ai:\n" + (last_ai or "")
     ))
+
     out = llm.invoke([sys, user])
     txt = getattr(out, "content", "") or ""
     txt = txt.strip()
@@ -97,7 +91,6 @@ def _summarize_with_llm(items: List[Dict[str, Any]], last_ai: Optional[str], hig
     # 혹시 모를 부정 라벨 제거(더 부드럽게 표기)
     txt = txt.replace(" — 정보 없음", "").replace(" — N/A", "").replace(" — n/a", "")
     return txt
-
 def rec_echo_node(state: AgentState) -> AgentState:
     # 0) followup 하이라이트 인덱스(선택)
     router = state.get("router_json") or {}
