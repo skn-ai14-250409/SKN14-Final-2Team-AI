@@ -27,7 +27,22 @@ def _normalize_item(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     size  = _to_int_ml(raw.get("size") or raw.get("size_ml") or raw.get("ml") or raw.get("Size"))
     url   = raw.get("detail_url") or raw.get("url") or raw.get("link") or raw.get("detailUrl")
-    return {"brand": brand, "name": name, "size": size, "detail_url": url}
+    
+    pid = raw.get("no") or raw.get("perfume_id") \
+          or (raw.get("perfume_data") or {}).get("no")
+    
+    try:
+        pid_int = int(float(pid)) if pid is not None else None
+    except Exception:
+        pid_int = None
+    
+    return {
+        "id": pid_int,
+        "brand": brand,
+        "name": name,
+        "size": size,
+        "detail_url": url
+        }
 
 def _extract_candidates_from_ml_result(ml_result: Any, top_n: int = 3) -> List[Dict[str, Any]]:
     """
@@ -104,12 +119,19 @@ def ML_agent_node(state: AgentState) -> AgentState:
             "items": candidates,  # 표준 스키마
         }
 
+        # perfume_list: id, brand, name만 추출
+        perfume_list = [
+            {"id": r.get("id"), "brand": r.get("brand"), "name": r.get("name")}
+            for r in candidates if r.get("id") and r.get("name")
+        ]
+
         # 6) 델타 메시지만 반환
         return {
             "messages": [AIMessage(content=final_answer)],
             "final_answer": final_answer,
             "rec_history": [entry],        # 리스트 누적
             "last_agent": "ML_agent",      # supervisor 프롬프트용
+            "perfume_list": perfume_list,
         }
 
     except Exception as e:
@@ -118,4 +140,5 @@ def ML_agent_node(state: AgentState) -> AgentState:
             "messages": [AIMessage(content=err)],
             "final_answer": err,
             "last_agent": "ML_agent",
+            "perfume_list": [],
         }

@@ -65,7 +65,7 @@ def LLM_parser_node(state: AgentState) -> AgentState:
         query_vector = embeddings.embed_query(user_query)
 
         # 4) Pinecone 검색
-        search_results = query_pinecone(query_vector, filtered_json, top_k=5)
+        search_results = query_pinecone(query_vector, filtered_json, top_k=3)
         if hasattr(search_results, "to_dict"):
             search_results = search_results.to_dict()
 
@@ -120,12 +120,15 @@ def LLM_parser_node(state: AgentState) -> AgentState:
             final_response_with_price = final_response
 
         # 7) 로그/요약(개발용): 사용자에게 그대로 보여주되, 한 메시지(델타)만 추가
-        summary = f"""[LLM_parser] RAG 파이프라인 완료 ✅
+#         summary = f"""[LLM_parser] RAG 파이프라인 완료 ✅
 
-📊 파싱 결과: {json.dumps(parsed_json, ensure_ascii=False)}
-🔍 필터링 결과: {json.dumps(filtered_json, ensure_ascii=False)}
-🎯 검색된 향수 개수: {len((search_results or {}).get('matches', []))}
+# 📊 파싱 결과: {json.dumps(parsed_json, ensure_ascii=False)}
+# 🔍 필터링 결과: {json.dumps(filtered_json, ensure_ascii=False)}
+# 🎯 검색된 향수 개수: {len((search_results or {}).get('matches', []))}
 
+# 💬 추천 결과:
+# {final_response_with_price}"""
+        summary = f"""
 💬 추천 결과:
 {final_response_with_price}"""
 

@@ -61,12 +61,14 @@ def generate_ai_response(query: str, thread_id: str) -> dict:
             "answer": answer,
             "parsed_slots": out.get("parsed_slots", {}),
             "search_results": out.get("search_results", {"matches": []}),
+            "perfume_list": out.get("perfume_list", []),
         }
     except Exception as e:
         return {
             "answer": f"Error: {str(e)}",
             "parsed_slots": {},
             "search_results": {"matches": []},
+            "perfume_list": [],
         }
 
 # -----------------------------
@@ -142,14 +144,19 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         parsed_slots = ai_output.get("parsed_slots", {})
         search_results = ai_output.get("search_results", {"matches": []})
 
-        perfume_list = []
-        for m in search_results.get("matches", []):
-            meta = m.get("metadata", {})
-            perfume_list.append({
-                "id": int(meta.get("no")) if meta.get("no") is not None else None,
-                "brand": meta.get("brand"),
-                "name": meta.get("name")
-            })
+        # perfume_list 우선: ML_agent_node는 여기 채움
+        perfume_list = ai_output.get("perfume_list")
+
+        # LLM_parser_node는 search_results.matches만 채움
+        if not perfume_list:  
+            perfume_list = []
+            for m in search_results.get("matches", []):
+                meta = m.get("metadata", {})
+                perfume_list.append({
+                    "id": int(meta.get("no")) if meta.get("no") is not None else None,
+                    "brand": meta.get("brand"),
+                    "name": meta.get("name")
+                })
 
         # 4. AI 응답 저장
         res = db.execute(

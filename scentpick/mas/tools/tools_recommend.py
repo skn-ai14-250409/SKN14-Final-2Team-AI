@@ -267,6 +267,7 @@ def recommend_perfume_vdb(
                 "score": float(m.get("score", 0.0)),
                 "brand": meta.get("brand") or meta.get("Brand") or "N/A",
                 "name": meta.get("name_perfume") or meta.get("name") or "N/A",
+                "no": meta.get("no"),
                 "fragrances": (
                     ", ".join(meta.get("fragrances", []))
                     if isinstance(meta.get("fragrances"), list)
@@ -337,6 +338,7 @@ def recommend_perfume_vdb(
             "score": float(m.get("score", 0.0)),
             "brand": meta.get("brand") or meta.get("Brand") or "N/A",
             "name": meta.get("name_perfume") or meta.get("name") or "N/A",
+            "no": meta.get("no"),
             "fragrances": (
                 ", ".join(meta.get("fragrances", []))
                 if isinstance(meta.get("fragrances"), list)
