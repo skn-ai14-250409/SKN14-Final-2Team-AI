@@ -12,7 +12,7 @@ from .tools_metafilters import build_pinecone_filter  # 필터 함수 별도 모
 
 from ..prompts.tools_rag_prompt import RESPONSE_SYSTEM
 
-def query_pinecone(vector, filtered_json: dict, top_k: int = 5):
+def query_pinecone(vector, filtered_json: dict, top_k: int = 3):
     """Pinecone 벡터 검색 + 메타데이터 필터 적용"""
     pinecone_filter = build_pinecone_filter(filtered_json)
 
