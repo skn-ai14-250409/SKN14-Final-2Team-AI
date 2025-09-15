@@ -147,6 +147,7 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
             meta = m.get("metadata", {})
             perfume_list.append({
                 "id": int(meta.get("no")) if meta.get("no") is not None else None,
+                "brand": meta.get("brand"),
                 "name": meta.get("name")
             })
 
