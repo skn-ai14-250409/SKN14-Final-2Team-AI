@@ -129,7 +129,7 @@ def LLM_parser_node(state: AgentState) -> AgentState:
 # 💬 추천 결과:
 # {final_response_with_price}"""
         summary = f"""
-💬 추천 결과:
+💬 추천 결과:\n\n
 {final_response_with_price}"""
 
         # 8) rec_history 누적 엔트리
