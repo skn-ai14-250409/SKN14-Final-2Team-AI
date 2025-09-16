@@ -96,7 +96,7 @@ def LLM_parser_node(state: AgentState) -> AgentState:
                     try:
                         res = price_tool.invoke({"user_query": q})
                         if res:
-                            price_sections.append(f"🔎 **{label}**\n(검색어: `{q}`)\n{res}")
+                            price_sections.append(f"**{label}**\n{res}")
                             break
                     except Exception as e:
                         print(f"❌ 가격 검색 오류({q}): {e}")
@@ -106,14 +106,14 @@ def LLM_parser_node(state: AgentState) -> AgentState:
 
 ---
 
-💰 **가격 정보 (vectorDB 추천만)**
+💰 **가격 정보**\n
 {'\n\n'.join(price_sections)}"""
             else:
                 final_response_with_price = f"""{final_response}
 
 ---
 
-💰 **가격 정보 (vectorDB 추천만)**
+💰 **가격 정보**\n
 🔍 벡터DB에서 추천된 제품명으로 검색했지만, 일치 결과를 찾지 못했어요.
 원하시는 **제품명 + 농도 + 용량(예: 50ml)** 조합으로 다시 알려주세요."""
         else:
@@ -129,7 +129,7 @@ def LLM_parser_node(state: AgentState) -> AgentState:
 # 💬 추천 결과:
 # {final_response_with_price}"""
         summary = f"""
-💬 추천 결과:
+💬 추천 결과:\n\n
 {final_response_with_price}"""
 
         # 8) rec_history 누적 엔트리

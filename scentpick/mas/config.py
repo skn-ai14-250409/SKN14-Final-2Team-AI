@@ -14,5 +14,5 @@ naver_client_secret = os.getenv("NAVER_CLIENT_SECRET")
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 index = pc.Index("perfume-vectordb2")
 
-llm = ChatOpenAI(model=MODEL_NAME, temperature=0)
+llm = ChatOpenAI(model=MODEL_NAME, temperature=0, streaming=True)
 embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
