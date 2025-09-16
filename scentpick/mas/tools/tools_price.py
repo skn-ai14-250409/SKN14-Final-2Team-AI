@@ -37,7 +37,7 @@ def price_tool(user_query: str) -> str:
 
     # 상위 3개만 사용
     products = data["items"][:3]
-    output = f"🔍 '{search_keyword}' 검색 결과(최대 3개):\n\n"
+    output = f"🔍 '{search_keyword}' 검색 결과:\n\n"
 
     prices = []
     for i, item in enumerate(products, 1):
@@ -51,21 +51,21 @@ def price_tool(user_query: str) -> str:
         except Exception:
             price_val = None
 
-        output += f"📦 {i}. {title}\n"
+        output += f"{i}. {title}\n"
         if price_val is not None and price_val > 0:
             prices.append(price_val)
-            output += f"   💰 가격: {price_val:,}원\n"
+            output += f"   ₩ {price_val:,}원\n"
         else:
-            output += f"   💰 가격: 확인 불가\n"
+            output += f"   ₩ 확인 불가\n"
         output += "\n"  # 판매처/링크 출력 제거
 
     # 가격대 정보(2개 이상 있을 때만)
     if len(prices) >= 2:
-        output += "💡 **가격대 정보**\n"
-        output += f"   📊 검색된 가격 범위: {min(prices):,}원 ~ {max(prices):,}원\n"
+        output += "**가격대 정보**\n"
+        output += f"   💰 검색된 가격 범위: {min(prices):,}원 ~ {max(prices):,}원\n"
         output += "   ⚠️ 정확한 가격은 각 쇼핑몰에서 확인해주세요.\n"
     elif len(prices) == 1:
-        output += "💡 **참고사항**\n"
+        output += "**참고사항**\n"
         output += "   ⚠️ 더 많은 가격 비교를 원하시면 여러 쇼핑몰을 직접 확인해보세요.\n"
 
     return output

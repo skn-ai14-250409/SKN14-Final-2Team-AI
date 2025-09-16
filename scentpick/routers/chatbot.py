@@ -205,33 +205,54 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         )
         run_id = res.lastrowid
 
-        # 6) rec_candidates 저장 (검색 결과 기록은 유지)
-        for idx, match in enumerate(search_results.get("matches", []), start=1):
-            meta = match.get("metadata", {}) or {}
-            pid_val = meta.get("no")
-            try:
-                pid_val = int(pid_val) if pid_val is not None else None
-            except Exception:
-                pid_val = None
+        # 6) rec_candidates 저장 (perfume_list → search_results fallback)
+        if perfume_list:
+            for item in perfume_list:
+                try:
+                    db.execute(
+                        text("""
+                            INSERT INTO rec_candidates (`rank`, score, reason_summary, reason_detail, retrieved_from, perfume_id, run_rec_id)
+                            VALUES (:rank, :score, :summary, :detail, :retrieved, :pid, :rid)
+                        """),
+                        {
+                            "rank": item.get("rank"),
+                            "score": item.get("score", 0.0),
+                            "summary": item.get("text"),
+                            "detail": json.dumps({}, ensure_ascii=False),
+                            "retrieved": "ml_result",
+                            "pid": item.get("id"),
+                            "rid": run_id,
+                        },
+                    )
+                except Exception as e:
+                    print(f"❌ rec_candidates insert error (perfume_list): {e}")
+        elif search_results.get("matches"):
+            for idx, match in enumerate(search_results.get("matches", []), start=1):
+                meta = match.get("metadata", {}) or {}
+                pid_val = meta.get("no")
+                try:
+                    pid_val = int(pid_val) if pid_val is not None else None
+                except Exception:
+                    pid_val = None
 
-            try:
-                db.execute(
-                    text("""
-                        INSERT INTO rec_candidates (`rank`, score, reason_summary, reason_detail, retrieved_from, perfume_id, run_rec_id)
-                        VALUES (:rank, :score, :summary, :detail, :retrieved, :pid, :rid)
-                    """),
-                    {
-                        "rank": idx,
-                        "score": match.get("score", 0.0),
-                        "summary": meta.get("text"),
-                        "detail": json.dumps({}, ensure_ascii=False),
-                        "retrieved": "pinecone",
-                        "pid": pid_val,
-                        "rid": run_id,
-                    },
-                )
-            except Exception as e:
-                print(f"❌ rec_candidates insert error idx={idx}: {e}")
+                try:
+                    db.execute(
+                        text("""
+                            INSERT INTO rec_candidates (`rank`, score, reason_summary, reason_detail, retrieved_from, perfume_id, run_rec_id)
+                            VALUES (:rank, :score, :summary, :detail, :retrieved, :pid, :rid)
+                        """),
+                        {
+                            "rank": idx,
+                            "score": match.get("score", 0.0),
+                            "summary": meta.get("text"),
+                            "detail": json.dumps({}, ensure_ascii=False),
+                            "retrieved": "pinecone",
+                            "pid": pid_val,
+                            "rid": run_id,
+                        },
+                    )
+                except Exception as e:
+                    print(f"❌ rec_candidates insert error (search_results idx={idx}): {e}")
 
         # 7) 대화 updated_at 갱신
         db.execute(
