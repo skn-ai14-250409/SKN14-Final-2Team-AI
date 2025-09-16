@@ -206,53 +206,53 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         run_id = res.lastrowid
 
         # 6) rec_candidates 저장 (perfume_list → search_results fallback)
+        inserted = False
+
+        # search_results를 dict으로 변환해두면 빠르게 매칭 가능
+        sr_meta_map = {}
+        for match in search_results.get("matches", []):
+            try:
+                pid = int(match["metadata"].get("no"))
+            except Exception:
+                pid = None
+            if pid:
+                sr_meta_map[pid] = {
+                    "score": match.get("score", 0.0),
+                    "text": match["metadata"].get("text"),
+                }
+
         if perfume_list:
-            for item in perfume_list:
-                try:
-                    db.execute(
-                        text("""
-                            INSERT INTO rec_candidates (`rank`, score, reason_summary, reason_detail, retrieved_from, perfume_id, run_rec_id)
-                            VALUES (:rank, :score, :summary, :detail, :retrieved, :pid, :rid)
-                        """),
-                        {
-                            "rank": item.get("rank"),
-                            "score": item.get("score", 0.0),
-                            "summary": item.get("text"),
-                            "detail": json.dumps({}, ensure_ascii=False),
-                            "retrieved": "ml_result",
-                            "pid": item.get("id"),
-                            "rid": run_id,
-                        },
-                    )
-                except Exception as e:
-                    print(f"❌ rec_candidates insert error (perfume_list): {e}")
-        elif search_results.get("matches"):
-            for idx, match in enumerate(search_results.get("matches", []), start=1):
-                meta = match.get("metadata", {}) or {}
-                pid_val = meta.get("no")
-                try:
-                    pid_val = int(pid_val) if pid_val is not None else None
-                except Exception:
-                    pid_val = None
+            for idx, item in enumerate(perfume_list, start=1):
+                pid = item.get("id")
+                if not pid:
+                    continue
+
+                # score / text 매칭
+                sr_info = sr_meta_map.get(pid, {})
+                score_val = item.get("score", sr_info.get("score", 0.0))
+                summary_val = item.get("text") or sr_info.get("text") or item.get("name")
 
                 try:
                     db.execute(
                         text("""
-                            INSERT INTO rec_candidates (`rank`, score, reason_summary, reason_detail, retrieved_from, perfume_id, run_rec_id)
-                            VALUES (:rank, :score, :summary, :detail, :retrieved, :pid, :rid)
+                            INSERT INTO rec_candidates 
+                                (`rank`, score, reason_summary, reason_detail, retrieved_from, perfume_id, run_rec_id)
+                            VALUES 
+                                (:rank, :score, :summary, :detail, :retrieved, :pid, :rid)
                         """),
                         {
                             "rank": idx,
-                            "score": match.get("score", 0.0),
-                            "summary": meta.get("text"),
+                            "score": score_val,
+                            "summary": summary_val,
                             "detail": json.dumps({}, ensure_ascii=False),
-                            "retrieved": "pinecone",
-                            "pid": pid_val,
+                            "retrieved": "ml_result",
+                            "pid": pid,
                             "rid": run_id,
                         },
                     )
+                    inserted = True
                 except Exception as e:
-                    print(f"❌ rec_candidates insert error (search_results idx={idx}): {e}")
+                    print(f"❌ rec_candidates insert error (perfume_list idx={idx}): {e}")
 
         # 7) 대화 updated_at 갱신
         db.execute(
