@@ -205,9 +205,6 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         )
         run_id = res.lastrowid
 
-        print("#### perfume_list #### ", perfume_list)
-        print("#### search_results #### ", search_results)
-
         # 6) rec_candidates 저장 (perfume_list → search_results fallback)
         inserted = False
 
