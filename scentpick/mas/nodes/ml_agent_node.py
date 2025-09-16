@@ -107,7 +107,7 @@ def ML_agent_node(state: AgentState) -> AgentState:
                 if r.get("size"):
                     line += f" {r['size']}ml"
                 lines.append(line)
-            header = "👃 추천 결과 (상위 3개):\n\n" + "\n".join(lines)
+            header = "💬 추천 결과:\n\n" + "\n".join(lines)
             final_answer = header + ("\n\n" + explanation if explanation else "")
         else:
             final_answer = "추천 결과를 찾지 못했어요." + ("\n\n" + explanation if explanation else "")
