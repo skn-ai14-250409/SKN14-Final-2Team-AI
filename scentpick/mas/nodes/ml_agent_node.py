@@ -30,18 +30,25 @@ def _normalize_item(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     
     pid = raw.get("no") or raw.get("perfume_id") \
           or (raw.get("perfume_data") or {}).get("no")
-    
     try:
         pid_int = int(float(pid)) if pid is not None else None
     except Exception:
         pid_int = None
+
+    rank = raw.get("rank")
+    score = raw.get("score") or 0.0
+    perfume_data = raw.get("perfume_data") or {}
+    text = perfume_data.get("text") if "text" in perfume_data else raw.get("text") or ""
     
     return {
         "id": pid_int,
         "brand": brand,
         "name": name,
         "size": size,
-        "detail_url": url
+        "detail_url": url,
+        "rank": rank,
+        "score": score,
+        "text": text,
         }
 
 def _extract_candidates_from_ml_result(ml_result: Any, top_n: int = 3) -> List[Dict[str, Any]]:
@@ -120,10 +127,17 @@ def ML_agent_node(state: AgentState) -> AgentState:
         }
 
         # perfume_list: id, brand, name만 추출
-        perfume_list = [
-            {"id": r.get("id"), "brand": r.get("brand"), "name": r.get("name")}
-            for r in candidates if r.get("id") and r.get("name")
-        ]
+        perfume_list = []
+        for r in candidates:
+            if r.get("id") and r.get("name"):
+                perfume_list.append({
+                    "id": r.get("id"),
+                    "brand": r.get("brand"),
+                    "name": r.get("name"),
+                    "rank": r.get("rank"),
+                    "score": r.get("score"),
+                    "text": r.get("text"),
+                })
 
         # 6) 델타 메시지만 반환
         return {
