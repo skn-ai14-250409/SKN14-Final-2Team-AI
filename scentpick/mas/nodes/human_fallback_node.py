@@ -12,9 +12,10 @@ def human_fallback_node(state: AgentState) -> AgentState:
         user_query = "(empty)"
     
     fallback_response = (
-        f"❓ '{user_query}' 더 명확한 설명이 필요합니다.\n"
-        f"👉 질문을 구체적으로 다시 작성해 주세요.\n"
-        f"💡 또는 향수에 관한 멋진 질문을 해보시는 건 어떨까요?"
+        f"💬 ScentPick 챗봇은 향수에 관한 질문에 답변하는 전용 챗봇입니다.\n"
+        f"❓ '{user_query}' 해당 질문은 향수와 직접 관련이 없어 답변드리기 어려워요.\n"
+        f"👉 향수에 대해 구체적으로 다시 질문해 주세요! (예: '여름에 어울리는 시트러스 향 추천해줘')\n"
+        f"💡 또는 특정 브랜드/노트/상황에 맞는 향수를 물어보시면 멋진 추천을 드릴 수 있습니다."
     )
     
     msgs = state["messages"] + [AIMessage(content=fallback_response)]
