@@ -17,7 +17,7 @@ def FAQ_agent_node(state: AgentState) -> AgentState:
         ai = chain.invoke({"question": user_query})
         body = getattr(ai, "content", str(ai))
 
-        final_answer = f"📚 **향수 지식**\n{body}"
+        final_answer = f"💬 답변 결과:\n{body}"
 
         # ✅ add_messages 사용 시, 이번 턴에 “추가될” 메시지만 반환
         return {
