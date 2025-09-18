@@ -176,6 +176,7 @@ def recommend_perfume_vdb(
     model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     max_len: int = 256,
     index_name: str = "perfume-vectordb2",
+    metadata_filter: Optional[dict] = None,
     # Fallback 관련
     keyword_index_name: str = "keyword-vectordb",
     keyword_top_k: int = 1,
@@ -221,7 +222,8 @@ def recommend_perfume_vdb(
 
     used_fallback = False
     if use_thresholds and thresholds:
-        idx_thresh = [i for i, p in enumerate(proba) if p >= float(thresholds.get(classes[i], 0.5))]
+        # idx_thresh = [i for i, p in enumerate(proba) if p >= float(thresholds.get(classes[i], 0.5))]
+        idx_thresh = [i for i, p in enumerate(proba) if p >= max(float(thresholds.get(classes[i], 0.6)), 0.5)]
         if idx_thresh:
             picked_idx = sorted(idx_thresh, key=lambda i: -proba[i])[:topk_labels]
         else:
@@ -254,7 +256,12 @@ def recommend_perfume_vdb(
             v = user_emb_vdb
         v = v / (np.linalg.norm(v) + 1e-8)
 
-        q = perfume_index.query(vector=v.tolist(), top_k=int(top_n_perfumes), include_metadata=True)
+        q = perfume_index.query(
+            vector=v.tolist(),
+            top_k=int(top_n_perfumes),
+            include_metadata=True,
+            filter=metadata_filter
+        )
         matches = q.get("matches", []) if isinstance(q, dict) else getattr(q, "matches", []) or []
         matches = sorted(matches, key=lambda m: m.get("score", 0.0), reverse=True)[:top_n_perfumes]
 
@@ -325,7 +332,12 @@ def recommend_perfume_vdb(
     else:
         acc_vec = user_emb_vdb
 
-    pq = perfume_index.query(vector=acc_vec.tolist(), top_k=int(top_n_perfumes), include_metadata=True)
+    pq = perfume_index.query(
+        vector=acc_vec.tolist(),
+        top_k=int(top_n_perfumes), 
+        include_metadata=True,
+        filter=metadata_filter
+    )
     pmatches = pq.get("matches", []) if isinstance(pq, dict) else getattr(pq, "matches", []) or []
     pmatches = sorted(pmatches, key=lambda m: m.get("score", 0.0), reverse=True)[:top_n_perfumes]
 
