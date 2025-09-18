@@ -4,6 +4,7 @@ from ..state import AgentState
 import json
 from ..prompts.ML_agent_prompt import ML_agent_system_prompt
 from ..tools.tools_recommend import recommend_perfume_vdb   # Pinecone VDB 기반 추천 도구
+from ..tools.tools_parsers import run_llm_parser
 from ..config import llm
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -71,6 +72,13 @@ def _extract_candidates_from_ml_result(ml_result: Any, top_n: int = 3) -> List[D
                 return normed[:top_n]
     return []
 
+def _extract_brand_from_query(query: str) -> Optional[str]:
+    known_brands = ["샤넬", "디올", "구찌", "톰포드", "조말론", "입생로랑"]
+    for b in known_brands:
+        if b.lower() in query.lower():
+            return b
+    return None
+
 def ML_agent_node(state: AgentState) -> AgentState:
     """ML agent - Pinecone VDB를 통해 상위 N개 추천 후, LLM이 설명문 생성 (멀티턴/rec_history 누적)"""
     # 0) 최신 사용자 메시지
@@ -81,15 +89,25 @@ def ML_agent_node(state: AgentState) -> AgentState:
             break
 
     try:
-        # 1) VDB 기반 추천
-        ml_result = recommend_perfume_vdb.invoke({
+        print(f"🔍 ML_parser 실행: {user_query}")
+
+        parsed_json = run_llm_parser(user_query)
+        brand = parsed_json.get("brand")
+
+        params = {
             "user_text": user_query,
             "topk_labels": 3,
             "top_n_perfumes": 3,
             "use_thresholds": True,
             "alpha_labels": 0.8,
             "index_name": "perfume-vectordb2",
-        })
+        }
+
+        if brand:
+            params["metadata_filter"] = {"brand": brand}
+
+        # 1) VDB 기반 추천
+        ml_result = recommend_perfume_vdb.invoke(params)
 
         # 2) 후보 표준화 (rec_echo가 바로 읽을 수 있게)
         candidates = _extract_candidates_from_ml_result(ml_result, top_n=3)
