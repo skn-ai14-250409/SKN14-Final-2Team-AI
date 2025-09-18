@@ -35,8 +35,8 @@ def price_tool(user_query: str) -> str:
     def remove_html_tags(text: str) -> str:
         return re.sub(r"<[^>]+>", "", text or "")
 
-    # 상위 3개만 사용
-    products = data["items"][:3]
+    # 블록당 상위 1개만 사용 (추천 리스트 n : 가격 리스트 n)
+    products = data["items"][:1]
     output = f"🔍 '{search_keyword}' 검색 결과:\n\n"
 
     prices = []

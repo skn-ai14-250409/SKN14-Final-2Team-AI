@@ -93,11 +93,12 @@ def ML_agent_node(state: AgentState) -> AgentState:
 
         parsed_json = run_llm_parser(user_query)
         brand = parsed_json.get("brand")
+        n_recs = int(parsed_json.get("recommendation_count") or 3)  # 기본값 3
 
         params = {
             "user_text": user_query,
             "topk_labels": 3,
-            "top_n_perfumes": 3,
+            "top_n_perfumes": n_recs,
             "use_thresholds": True,
             "alpha_labels": 0.8,
             "index_name": "perfume-vectordb2",
@@ -110,7 +111,7 @@ def ML_agent_node(state: AgentState) -> AgentState:
         ml_result = recommend_perfume_vdb.invoke(params)
 
         # 2) 후보 표준화 (rec_echo가 바로 읽을 수 있게)
-        candidates = _extract_candidates_from_ml_result(ml_result, top_n=3)
+        candidates = _extract_candidates_from_ml_result(ml_result, top_n=n_recs)
 
         # 3) LLM 설명 생성 (시스템+휴먼 메시지)
         ml_json_str = json.dumps(ml_result, ensure_ascii=False)
