@@ -25,10 +25,14 @@ def query_pinecone(vector, filtered_json: dict, top_k: int = 3):
     return result
 
 
-def format_search_results(pinecone_results):
+def format_search_results(pinecone_results, limit=None):
     """Pinecone 검색 결과를 텍스트로 포맷팅"""
     if not pinecone_results or not pinecone_results.get("matches"):
         return "검색된 향수가 없습니다."
+    
+    matches = pinecone_results["matches"]
+    if limit is not None:
+        matches = matches[:limit]
 
     formatted_results = []
     for i, match in enumerate(pinecone_results["matches"], 1):
@@ -50,10 +54,10 @@ def format_search_results(pinecone_results):
     return "\n\n".join(formatted_results)
 
 
-def generate_response(original_query: str, search_results):
+def generate_response(original_query: str, search_results, limit=None):
     """검색 결과를 바탕으로 최종 응답 생성"""
     try:
-        formatted_results = format_search_results(search_results)
+        formatted_results = format_search_results(search_results, limit=limit)
 
         chain = RESPONSE_SYSTEM | llm
         response = chain.invoke({

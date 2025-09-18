@@ -58,6 +58,8 @@ def LLM_parser_node(state: AgentState) -> AgentState:
             err = f"[LLM_parser] 쿼리 파싱 오류: {parsed_json['error']}"
             return {"messages": [AIMessage(content=err)], "final_answer": err, "last_agent": "LLM_parser"}
 
+        print(f"🔍 파싱 결과: {json.dumps(parsed_json, ensure_ascii=False)}")
+
         # 2) 메타필터
         filtered_json = apply_meta_filters(parsed_json)
 
@@ -65,16 +67,17 @@ def LLM_parser_node(state: AgentState) -> AgentState:
         query_vector = embeddings.embed_query(user_query)
 
         # 4) Pinecone 검색
-        search_results = query_pinecone(query_vector, filtered_json, top_k=3)
+        n_recs = int(parsed_json.get("recommendation_count") or 3)  # 기본값 3
+        search_results = query_pinecone(query_vector, filtered_json, top_k=n_recs)
         if hasattr(search_results, "to_dict"):
             search_results = search_results.to_dict()
 
         # 4-1) 추천 후보 추출 (rec_echo용 표준 스키마)
         preferred_size = parsed_json.get("sizes")
-        candidates = _extract_candidates(search_results, preferred_size=preferred_size, top_n=5)
+        candidates = _extract_candidates(search_results, preferred_size=preferred_size, top_n=n_recs)
 
         # 5) 최종 사용자 답변 텍스트 생성
-        final_response = generate_response(user_query, search_results)
+        final_response = generate_response(user_query, search_results, limit=n_recs)
 
         # 6) 가격 의도 감지
         price_keywords_ko = ['가격', '얼마', '가격대', '구매', '판매', '할인', '어디서 사', '어디서사', '배송비', '최저가']
@@ -87,7 +90,7 @@ def LLM_parser_node(state: AgentState) -> AgentState:
             item_query_bundles = build_item_queries_from_vectordb(
                 search_results=search_results,
                 facets=parsed_json,
-                top_n_items=min(5, len(candidates))
+                top_n_items=min(n_recs, len(candidates))
             )
             price_sections = []
             for bundle in item_query_bundles:
