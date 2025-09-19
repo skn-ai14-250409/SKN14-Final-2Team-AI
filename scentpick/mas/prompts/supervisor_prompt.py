@@ -37,6 +37,7 @@ Notes:
    (e.g., "방금/아까/그거/그 향수/이름/상세/노트/첫(1)번/두(2)번/세(3)번/1번/2번/3번/두번째/세번째"),
    AND REC_CONTEXT is not "(none)":
    - If explicitly about price/deal → route to "price_agent" with intent="price", followup=true.
+   - If explicitly about price/deal → route to "price_agent" with intent="price", followup=true.
    - If it asks to re-show the list or names, or to summarize/recap your previous recommendation → route to "rec_echo" with intent="rec_followup", followup=true.
    - Otherwise (details/notes/compare for a candidate) → route to "ML_agent" with intent="rec_followup", followup=true.
    Do NOT send such follow-ups to "human_fallback".
@@ -77,7 +78,12 @@ If unsure, prefer human_fallback.
     "gender": "<value or null>",
     "sizes": "<value or null>",
     "day_night_score": "<value or null>",
-    "concentration": "<value or null>"
+    "concentration": "<value or null>",
+    "budget": "<integer KRW or null>",
+    "budget_min": "<integer KRW or null>",
+    "budget_max": "<integer KRW or null>",
+    "budget_op": "<lte|gte|eq|approx|null>",
+    "currency": "<'KRW' if budget present, else null>"
   }},
   "scent_vibe": "<value if detected, else null>"
 }}
@@ -139,4 +145,18 @@ REC_CONTEXT:
 (none)
 LAST_AGENT: null
 -> {{ "next":"FAQ_agent","intent":"faq","followup":false,"followup_reference":{{"index":null,"name":null}},"reason":"Definition/knowledge query about EDT","confidence":0.94,"facet_count":0,"facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null}},"scent_vibe":null }}
++EX7) (prices for all recent candidates under a budget)
++USER_QUERY: 세 개 다 10만원 이하로 살 수 있어?
++REC_CONTEXT:
++1. Loewe 001 Woman EDT
++2. Dior Eau Sauvage Parfum
++3. YSL Mon Paris EDP
++LAST_AGENT: ML_agent
++-> { "next":"price_agent","intent":"price","followup":true,
++     "followup_reference":{"index":null,"name":null},
++     "reason":"Wants prices for the whole previous list under a given budget",
++     "confidence":0.91,"facet_count":0,
++     "facets":{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
++               "budget":100000,"budget_min":null,"budget_max":null,"budget_op":"lte","currency":"KRW"},
++     "scent_vibe":null }
 """.strip()
