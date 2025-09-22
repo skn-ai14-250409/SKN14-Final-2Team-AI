@@ -118,11 +118,8 @@ async def generate_ai_response_streaming(query: str, thread_id: str):
         chunk_size = 10  # 문자 단위로 청크 크기 조정
         for i in range(0, len(answer), chunk_size):
             chunk = answer[i:i + chunk_size]
-            # yield {"content": chunk}
-            # await asyncio.sleep(0.05)  # 스트리밍 효과를 위한 지연
-            sse_data = json.dumps({"content": chunk}, ensure_ascii=False)
-            yield f"data: {sse_data}\n\n"
-            await asyncio.sleep(0.01)  # 지연은 짧게 (실제 flush 유도)
+            yield {"content": chunk}
+            await asyncio.sleep(0.05)  # 스트리밍 효과를 위한 지연
 
         # 추천 리스트 처리
         ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo"}
@@ -461,16 +458,17 @@ async def chat_stream(
             ai_output = {}
 
             async for chunk in generate_ai_response_streaming(query, thread_id):
-                if chunk.get("content"):
+                if "content" in chunk:
                     full_response += chunk["content"]
-                    # Django로 청크 전송
                     yield f"data: {json.dumps({'content': chunk['content']}, ensure_ascii=False)}\n\n"
-                elif chunk.get("done"):
-                    # AI 응답 완료, 추가 데이터 저장
+
+                elif "done" in chunk:
                     ai_output = chunk
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     break
-                elif chunk.get("error"):
-                    yield f"data: {json.dumps({'error': chunk['error']}, ensure_ascii=False)}\n\n"
+
+                elif "error" in chunk:
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     return
 
             # 4) AI 응답 저장
