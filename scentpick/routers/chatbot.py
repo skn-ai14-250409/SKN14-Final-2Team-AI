@@ -118,8 +118,11 @@ async def generate_ai_response_streaming(query: str, thread_id: str):
         chunk_size = 10  # 문자 단위로 청크 크기 조정
         for i in range(0, len(answer), chunk_size):
             chunk = answer[i:i + chunk_size]
-            yield {"content": chunk}
-            await asyncio.sleep(0.05)  # 스트리밍 효과를 위한 지연
+            # yield {"content": chunk}
+            # await asyncio.sleep(0.05)  # 스트리밍 효과를 위한 지연
+            sse_data = json.dumps({"content": chunk}, ensure_ascii=False)
+            yield f"data: {sse_data}\n\n"
+            await asyncio.sleep(0.01)  # 지연은 짧게 (실제 flush 유도)
 
         # 추천 리스트 처리
         ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo"}
@@ -569,4 +572,12 @@ async def chat_stream(
             db.rollback()
             yield f"data: {json.dumps({'error': f'서버 오류: {str(e)}'}, ensure_ascii=False)}\n\n"
 
-    return StreamingResponse(generate_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Transfer-Encoding": "chunked",
+        }
+    )
