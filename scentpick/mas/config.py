@@ -16,3 +16,5 @@ index = pc.Index("perfume-vectordb2")
 
 llm = ChatOpenAI(model=MODEL_NAME, temperature=0, streaming=True)
 embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
+
+service_token = os.getenv("SERVICE_TOKEN")
