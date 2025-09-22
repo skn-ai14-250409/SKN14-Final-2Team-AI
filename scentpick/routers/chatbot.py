@@ -458,17 +458,16 @@ async def chat_stream(
             ai_output = {}
 
             async for chunk in generate_ai_response_streaming(query, thread_id):
-                if "content" in chunk:
+                if chunk.get("content"):
                     full_response += chunk["content"]
+                    # Django로 청크 전송
                     yield f"data: {json.dumps({'content': chunk['content']}, ensure_ascii=False)}\n\n"
-
-                elif "done" in chunk:
+                elif chunk.get("done"):
+                    # AI 응답 완료, 추가 데이터 저장
                     ai_output = chunk
-                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     break
-
-                elif "error" in chunk:
-                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                elif chunk.get("error"):
+                    yield f"data: {json.dumps({'error': chunk['error']}, ensure_ascii=False)}\n\n"
                     return
 
             # 4) AI 응답 저장
@@ -562,21 +561,10 @@ async def chat_stream(
             final_data = {
                 "done": True,
                 "conversation_id": conv_id,
-                "parsed_slots": ai_output.get("parsed_slots", {}) or {},
-                "search_results": ai_output.get("search_results", {"matches": []}) or {"matches": []},
-                "perfume_list": ai_output.get("perfume_list") or [],
-                "chosen_agent": ai_output.get("chosen_agent"),
+                "perfume_list": perfume_list or []
             }
-            sse_data = json.dumps(final_data, ensure_ascii=False)
-            yield f"data: {sse_data}\n\n"
-
-            # final_data = {
-            #     "done": True,
-            #     "conversation_id": conv_id,
-            #     "perfume_list": perfume_list or []
-            # }
-            # yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
-
+            yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
+            
         except Exception as e:
             db.rollback()
             yield f"data: {json.dumps({'error': f'서버 오류: {str(e)}'}, ensure_ascii=False)}\n\n"
