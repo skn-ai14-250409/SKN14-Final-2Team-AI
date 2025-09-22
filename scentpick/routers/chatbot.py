@@ -119,7 +119,7 @@ async def generate_ai_response_streaming(query: str, thread_id: str):
         for i in range(0, len(answer), chunk_size):
             chunk = answer[i:i + chunk_size]
             yield {"content": chunk}
-            await asyncio.sleep(3)  # 스트리밍 효과를 위한 지연
+            await asyncio.sleep(0.05)  # 스트리밍 효과를 위한 지연
 
         # 추천 리스트 처리
         ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo"}
