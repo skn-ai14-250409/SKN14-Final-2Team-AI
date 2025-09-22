@@ -564,9 +564,20 @@ async def chat_stream(
             final_data = {
                 "done": True,
                 "conversation_id": conv_id,
-                "perfume_list": perfume_list or []
+                "parsed_slots": ai_output.get("parsed_slots", {}) or {},
+                "search_results": ai_output.get("search_results", {"matches": []}) or {"matches": []},
+                "perfume_list": ai_output.get("perfume_list") or [],
+                "chosen_agent": ai_output.get("chosen_agent"),
             }
-            yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
+            sse_data = json.dumps(final_data, ensure_ascii=False)
+            yield f"data: {sse_data}\n\n"
+
+            # final_data = {
+            #     "done": True,
+            #     "conversation_id": conv_id,
+            #     "perfume_list": perfume_list or []
+            # }
+            # yield f"data: {json.dumps(final_data, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             db.rollback()
