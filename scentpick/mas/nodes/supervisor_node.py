@@ -21,11 +21,12 @@ logger = logging.getLogger(__name__)
 ALLOWED = {
     "LLM_parser",
     "FAQ_agent",
-    "human_fallback",
+    "human_fallback", 
     "price_agent",
     "ML_agent",
     "memory_echo",
     "rec_echo",
+    "review_agent"  # <- review_agent_node가 아니라 review_agent
 }
 
 def _build_rec_context(state: AgentState, max_items: int = 5) -> str:
