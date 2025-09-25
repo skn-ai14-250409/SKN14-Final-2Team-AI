@@ -206,7 +206,12 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
                 )
         else:
             thread_id = str(uuid.uuid4())
-            title = request.query[:15]
+
+            if len(request.query) > 15:
+                title = request.query[:15] + "..."
+            else:
+                title = request.query
+
             res = db.execute(
                 text("""
                     INSERT INTO conversations (user_id, title, external_thread_id, started_at, updated_at)
@@ -436,7 +441,12 @@ async def chat_stream(
                     )
             else:
                 thread_id = str(uuid.uuid4())
-                title = query[:15]
+                
+                if len(query) > 15:
+                    title = query[:15] + "..."
+                else:
+                    title = query
+
                 res = db.execute(
                     text("""
                         INSERT INTO conversations (user_id, title, external_thread_id, started_at, updated_at)
