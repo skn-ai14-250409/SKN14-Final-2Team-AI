@@ -20,8 +20,12 @@ Notes:
 - facet_count = number of non-null values in "facets".
 
 [Price intent keywords (not exhaustive)]
-- Korean: 가격, 얼마, 가격대, 구매, 판매, 할인, 어디서 사, 어디서사, 배송비, 최저가, 쿠폰, 세일, 특가, 프로모션
+- Korean: 가격, 얼마, 가격대, 구매, 판매, 할인, 어디서 사, 어디서사, 배송비, 최저가, 쿠폰, 세일, 특가, 프로모션, 만원대, 원대
 - English: price, cost, cheapest, buy, purchase, discount, deal, promotion
+
+[Non-perfume product keywords (route to human_fallback)]
+- Korean: 데오드란트, 데오드런트, 틴트, 립틴트, 섬유유연제, 방향제, 탈취제, 디퓨저, 캔들, 룸스프레이, 페브릭미스트, 섬유향수(섬유용), 차량용 방향제, 샴푸, 바디미스트, 바디워시, 바디로션, 핸드크림
+- English: deodorant, tint, fabric softener, air freshener, deodorizer, diffuser, candle, room spray, fabric spray, car freshener, shampoo, body mist, body wash, body lotion, hand cream
 
 [Inputs provided to you]
 - USER_QUERY  : latest user message
@@ -30,7 +34,7 @@ Notes:
 2. Dior Sauvage
 3. Tom Ford Noir" (or "(none)" if empty)
 - LAST_AGENT  : the agent that answered last turn (may be null)
-- IMAGE_URL  : a link if the user uploaded an image (else null)
+- IMAGE_URL   : a link if the user uploaded an image (else null)
 
 [META-INTENT detection — HIGHEST PRIORITY. Always check these first.]
 1) If USER_QUERY asks what the user just said/asked (e.g., "내가 방금 뭐라 했지?", "내 마지막 질문 뭐였지?"):
@@ -45,17 +49,18 @@ Notes:
    When extracting followup_reference.index, use 1-based indexing within REC_CONTEXT; if out of range or unclear, set null.
 
 [Routing rules (fallback priority after META) — STRICT PRIORITY ORDER]
-0) If IMAGE_URL is provided (NOT null), you MUST ALWAYS choose "multimodal_agent"
-1) (only if NO image_url) Non-perfume / off-topic → human_fallback (intent="non_perfume")
-2) (only if NO image_url) Pure price-only intent (no product facets) → price_agent (intent="price")
-3) (only if NO image_url) If query contains BOTH a scent preference (facet or vibe) AND a price intent → review_agent  (intent="scent_price")
-4) (only if NO image_url) Count product facets in the query (without price intent):
+0) If IMAGE_URL is provided (NOT null), ALWAYS choose "multimodal_agent" (intent can be "scent_pref" or "other" depending on content)
+1) (only if NO image_url) If the query matches Non-perfume product keywords → human_fallback (intent="non_perfume")
+2) (only if NO image_url) Pure price-only single intent (만원대/원대/이하/이상/범위 등) with NO scent facet/vibe → price_agent (intent="price")
+3) (only if NO image_url) If the query contains BOTH a scent preference (facet or vibe, e.g., "~향", "~향 나는/느낌") AND a price intent → review_agent (intent="scent_price")
+4) (only if NO image_url) Scent-only single-preference queries (e.g., "~향", "~향 나는/느낌", "~scent") with NO price intent → ML_agent (intent="scent_pref")
+5) (only if NO image_url) Count product facets in the query (without price intent):
    - If facets ≥ 2 → LLM_parser (intent="other" or "scent_pref" if it matches a vibe)
-5) (only if NO image_url) Otherwise:
+6) (only if NO image_url) Otherwise:
    - Pure price query with a specific brand/product → price_agent (intent="price")
    - Perfume knowledge/definitions (e.g., "뜻", "차이", "정의", "어원") → FAQ_agent (intent="faq")
-   - Single taste/mood recommendation (e.g., "달달한 향", "포근한 겨울향") → ML_agent (intent="scent_pref")
-6) (only if NO image_url) Tie-breakers:
+   - Single taste/mood recommendation (e.g., "달달한 겨울향") → ML_agent (intent="scent_pref")
+7) Tie-breakers:
    - Complex/multi-aspect → LLM_parser
    - Pure price → price_agent
    - Else: knowledge → FAQ_agent, taste → ML_agent
@@ -63,7 +68,7 @@ If unsure, prefer human_fallback.
 
 [Output format — return ONLY JSON. No extra text, no code fences.]
 {{
-  "next": "<LLM_parser|FAQ_agent|human_fallback|price_agent|ML_agent|memory_echo|rec_echo|review_agent>",
+  "next": "<LLM_parser|FAQ_agent|human_fallback|price_agent|ML_agent|memory_echo|rec_echo|review_agent|multimodal_agent>",
   "intent": "<rec_followup|price|faq|scent_pref|non_perfume|memory|other|scent_price>",
   "followup": true or false,
   "followup_reference": {{
@@ -115,12 +120,12 @@ REC_CONTEXT:
 LAST_AGENT: ML_agent
 -> {{ "next":"price_agent","intent":"price","followup":true,"followup_reference":{{"index":2,"name":"Dior Sauvage"}},"reason":"Price question about candidate #2","confidence":0.90,"facet_count":0,"facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null}},"scent_vibe":null }}
 
-EX3) (single-preference recommendation)
-USER_QUERY: 여름에 달달한 향 추천해줘
+EX3) (single-preference recommendation — scent-only)
+USER_QUERY: 시원한 아쿠아향 나는 향수 추천해줘
 REC_CONTEXT:
 (none)
 LAST_AGENT: null
--> {{ "next":"ML_agent","intent":"scent_pref","followup":false,"followup_reference":{{"index":null,"name":null}},"reason":"Single taste/mood recommendation","confidence":0.88,"facet_count":1,"facets":{{"brand":null,"season":"summer","gender":null,"sizes":null,"day_night_score":null,"concentration":null}},"scent_vibe":"sweet" }}
+-> {{ "next":"ML_agent","intent":"scent_pref","followup":false,"followup_reference":{{"index":null,"name":null}},"reason":"Scent-only single preference without price intent","confidence":0.90,"facet_count":1,"facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null}},"scent_vibe":"aquatic_fresh" }}
 
 EX4) (detail follow-up for candidate #3)
 USER_QUERY: 3번 노트 알려줘
@@ -154,24 +159,49 @@ REC_CONTEXT:
 2. Dior Eau Sauvage Parfum
 3. YSL Mon Paris EDP
 LAST_AGENT: ML_agent
--> { "next":"price_agent","intent":"price","followup":true,
-     "followup_reference":{"index":null,"name":null},
+-> {{ "next":"price_agent","intent":"price","followup":true,
+     "followup_reference":{{"index":null,"name":null}},
      "reason":"Wants prices for the whole previous list under a given budget",
      "confidence":0.91,"facet_count":0,
-     "facets":{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
-               "budget":100000,"budget_min":null,"budget_max":null,"budget_op":"lte","currency":"KRW"},
-     "scent_vibe":null }
+     "facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
+               "budget":100000,"budget_min":null,"budget_max":null,"budget_op":"lte","currency":"KRW"}},
+     "scent_vibe":null }}
 
 EX8) (scent preference + price together → review_agent)
 USER_QUERY: 히노키숲향 향수 추천해주고 가격도 알려줘
 REC_CONTEXT:
 (none)
 LAST_AGENT: null
--> { "next":"review_agent","intent":"scent_price","followup":false,
-     "followup_reference":{"index":null,"name":null},
+-> {{ "next":"review_agent","intent":"scent_price","followup":false,
+     "followup_reference":{{"index":null,"name":null}},
      "reason":"User gave both a scent vibe (forest/wood) and a price intent",
      "confidence":0.91,"facet_count":1,
-     "facets":{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
-               "budget":null,"budget_min":null,"budget_max":null,"budget_op":null,"currency":null},
-     "scent_vibe":"hinoki_forest" }
+     "facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
+               "budget":null,"budget_min":null,"budget_max":null,"budget_op":null,"currency":null}},
+     "scent_vibe":"hinoki_forest" }}
+
+EX9) (price-only single intent — “만원대”)
+USER_QUERY: 10만원대 향수 추천해줘
+REC_CONTEXT:
+(none)
+LAST_AGENT: null
+-> {{ "next":"price_agent","intent":"price","followup":false,
+     "followup_reference":{{"index":null,"name":null}},
+     "reason":"Pure price-only single intent without scent facet",
+     "confidence":0.90,"facet_count":0,
+     "facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
+               "budget":100000,"budget_min":100000,"budget_max":109999,"budget_op":"approx","currency":"KRW"}},
+     "scent_vibe":null }}
+
+EX10) (non-perfume product → human_fallback)
+USER_QUERY: 데오드란트 추천해줘
+REC_CONTEXT:
+(none)
+LAST_AGENT: null
+-> {{ "next":"human_fallback","intent":"non_perfume","followup":false,
+     "followup_reference":{{"index":null,"name":null}},
+     "reason":"Asks for a non-perfume product category",
+     "confidence":0.92,"facet_count":0,
+     "facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null}},
+     "scent_vibe":null }}
 """.strip()
