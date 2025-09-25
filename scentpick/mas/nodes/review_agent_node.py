@@ -1,16 +1,17 @@
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pinecone import Pinecone
 import openai
 import os
+from datetime import datetime, timezone
 
 from ..state import AgentState
 from ..config import llm
 from ..tools.price_parse import extract_budget_krw
-from ..tools.tools_price import price_tool
+from ..tools.tools_price import price_tool  # LangChain Tool로 가정(.invoke 사용)
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +26,45 @@ PERFUME_INDEX_NAME = "perfume-vectordb"
 review_index = pc.Index(REVIEW_INDEX_NAME)
 perfume_index = pc.Index(PERFUME_INDEX_NAME)
 
-# 🔽 마지노 유사도 임계값 (기존 0.7 → 0.1)
-MIN_SIMILARITY_THRESHOLD = 0.1
+# 🔽 유사도 임계값 (너무 엄격하면 후보가 안 나옵니다)
+MIN_SIMILARITY_THRESHOLD = None
+
+# ---------------------------
+# 헬퍼
+# ---------------------------
+def _to_int_ml(v):
+    try:
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return int(v)
+        s = str(v).lower().replace("ml", "").strip()
+        return int(float(s))
+    except Exception:
+        return None
+
+def _get_meta(meta: dict, *keys, default: Optional[str] = "") -> str:
+    """여러 키 후보 중 먼저 매칭되는 값을 반환."""
+    if not meta:
+        return default or ""
+    for k in keys:
+        val = meta.get(k)
+        if val:
+            return str(val)
+    return default or ""
 
 def get_openai_embedding(text: str) -> List[float]:
     """OpenAI 임베딩 모델로 텍스트 벡터화"""
     try:
-        response = openai.embeddings.create(
-            model="text-embedding-ada-002",
-            input=text
-        )
-        return response.data[0].embedding
+        resp = openai.embeddings.create(model="text-embedding-ada-002", input=text)
+        return resp.data[0].embedding
     except Exception as e:
-        logger.error(f"[get_openai_embedding] Error: {e}")
+        logger.error(f"[get_openai_embedding] Error: {e}", exc_info=True)
         raise
 
+# ---------------------------
+# 파이프라인 함수
+# ---------------------------
 def parse_user_query(user_query: str) -> Dict[str, Any]:
     """사용자 쿼리를 향 설명과 가격대로 분리"""
     prompt = ChatPromptTemplate.from_messages([
@@ -58,14 +83,11 @@ def parse_user_query(user_query: str) -> Dict[str, Any]:
             "price_query": parsed.get("price_query", "")
         }
     except Exception as e:
-        logger.error(f"[parse_user_query] Error: {e}")
-        return {
-            "scent_description": user_query,
-            "price_query": ""
-        }
+        logger.error(f"[parse_user_query] Error: {e}", exc_info=True)
+        return {"scent_description": user_query, "price_query": ""}
 
 def search_review_vectordb(scent_description: str, top_k: int = 5) -> List[Dict[str, Any]]:
-    """review-vectordb에서 향 설명 기반 RAG 검색"""
+    """review-vectordb에서 향 설명 기반 RAG 검색 (메타키 방어 포함)"""
     try:
         logger.info(f"[search_review_vectordb] Searching for: {scent_description}")
         query_embedding = get_openai_embedding(scent_description)
@@ -74,34 +96,52 @@ def search_review_vectordb(scent_description: str, top_k: int = 5) -> List[Dict[
             top_k=top_k,
             include_metadata=True
         )
-        if not results.get('matches'):
+        matches = results.get("matches") or []
+        if not matches:
             logger.warning("[search_review_vectordb] No matches found")
             return []
+
         rag_results = []
-        for i, match in enumerate(results['matches']):
-            metadata = match.get('metadata', {})
-            logger.info(f"[search_review_vectordb] Match {i}: score={match.get('score')}, metadata={metadata}")
+        for i, match in enumerate(matches):
+            meta = (match.get("metadata") or {})
+            content = _get_meta(meta, "content", "text", "review", "body")
+            brand   = _get_meta(meta, "brand", "Brand")
+            name    = _get_meta(meta, "name", "Name", "title")
+            score   = match.get("score", 0.0)
+
+            if not (content or brand or name):
+                logger.warning(f"[search_review_vectordb] Skip empty meta: {meta}")
+                continue
+
             rag_results.append({
-                'content': metadata.get('content', ''),
-                'brand': metadata.get('brand', ''),
-                'name': metadata.get('name', ''),
-                'score': match.get('score', 0.0),
-                'metadata': metadata
+                "content": content,
+                "brand": brand,
+                "name": name,
+                "score": score,
+                "metadata": meta
             })
+
+        logger.info(f"[search_review_vectordb] Collected {len(rag_results)} usable results")
         return rag_results
     except Exception as e:
-        logger.error(f"[search_review_vectordb] Error: {e}")
+        logger.error(f"[search_review_vectordb] Error: {e}", exc_info=True)
         return []
 
 def analyze_rag_results(scent_description: str, rag_results: List[Dict]) -> Dict[str, Any]:
-    """RAG 결과를 분석해서 향의 특성 추출"""
-    if not rag_results:
+    usable = [r for r in rag_results if any([r.get("content"), r.get("brand"), r.get("name")])]
+    if not usable:
         return {"analyzed_scent": scent_description, "confidence": 0.0}
-    
+
     rag_text = ""
-    for i, result in enumerate(rag_results, 1):
-        rag_text += f"{i}. {result.get('brand','')} {result.get('name','')}: {result.get('content','')}\n"
-    
+    for i, r in enumerate(usable, 1):
+        b = r.get("brand", "")
+        n = r.get("name", "")
+        c = (r.get("content") or "").strip()
+        if len(c) > 600:
+            c = c[:600] + " ..."
+        rag_text += f"{i}. {b} {n}: {c}\n"
+
+    # 🔧 중괄호 이스케이프(매우 중요!)
     prompt = ChatPromptTemplate.from_messages([
         ("system", """다음은 향수 리뷰 데이터베이스에서 검색된 결과입니다.
 사용자가 원하는 향의 특성을 분석해서 JSON으로 반환해주세요.
@@ -112,10 +152,10 @@ def analyze_rag_results(scent_description: str, rag_results: List[Dict]) -> Dict
     "confidence": 0.0~1.0
 }}
 
-반드시 JSON 형태로만 응답하세요."""), 
+반드시 JSON 형태로만 응답하세요."""),
         ("user", "사용자 요청: {scent_description}\n\n검색 결과:\n{rag_text}")
     ])
-    
+
     try:
         chain = prompt | llm
         response = chain.invoke({
@@ -128,40 +168,67 @@ def analyze_rag_results(scent_description: str, rag_results: List[Dict]) -> Dict
             "confidence": float(parsed.get("confidence", 0.5))
         }
     except Exception as e:
-        logger.error(f"[analyze_rag_results] Error: {e}")
+        logger.error(f"[analyze_rag_results] Error: {e}", exc_info=True)
         return {"analyzed_scent": scent_description, "confidence": 0.0}
 
-def search_perfume_vectordb(analyzed_scent: str, top_k: int = 3) -> List[Dict[str, Any]]:
+def search_perfume_vectordb(analyzed_scent: str, top_k: int = 10) -> List[Dict[str, Any]]:
     """perfume-vectordb에서 분석된 향 특성으로 유사도 검색"""
     try:
         query_embedding = get_openai_embedding(analyzed_scent)
         results = perfume_index.query(
             vector=query_embedding,
-            top_k=top_k,
+            top_k=top_k,              # ← 3 -> 10
             include_metadata=True
         )
+        matches = results.get("matches") or []
+        if not matches:
+            logger.warning("[search_perfume_vectordb] No matches at all")
+            return []
+
+        # 🔎 디버깅: 상위 5개 점수와 일부 메타 확인
+        for i, m in enumerate(matches[:5], 1):
+            logger.info(f"[perfume_vdb] top{i} score={m.get('score')} meta_keys={list((m.get('metadata') or {}).keys())[:5]}")
+
+        # 1) 임계값 필터 제거/완화
+        # 2) 대신 상위 n개만 사용
         perfumes = []
-        for match in results['matches']:
-            metadata = match.get('metadata', {})
-            score = match.get('score', 0.0)
-            logger.info(f"[search_perfume_vectordb] Score: {score}")
-            if score < MIN_SIMILARITY_THRESHOLD:
-                logger.info(f"Skipped {metadata.get('name','')} - score {score:.2f} < {MIN_SIMILARITY_THRESHOLD}")
-                continue
+        for match in matches[:5]:     # 상위 5개만 채택
+            meta = match.get("metadata", {}) or {}
+            score = match.get("score", 0.0)
+
+            # 만약 꼭 임계값을 쓰고 싶다면 아주 낮게
+            if MIN_SIMILARITY_THRESHOLD is not None and score is not None:
+                if score < MIN_SIMILARITY_THRESHOLD:
+                    continue
+
             perfumes.append({
-                'brand': metadata.get('brand', ''),
-                'name': metadata.get('name', ''),
-                'score': score,
-                'size_ml': metadata.get('size_ml'),
-                'metadata': metadata
+                "brand": _get_meta(meta, "brand", "Brand"),
+                "name":  _get_meta(meta, "name", "Name", "title"),
+                "score": float(score or 0.0),
+                "size_ml": meta.get("size_ml"),
+                "metadata": meta
             })
+
+        # 🔁 최종 안전장치: 필터로 다 날렸다면 top3는 무조건 살려두기
+        if not perfumes:
+            for match in matches[:3]:
+                meta = match.get("metadata", {}) or {}
+                perfumes.append({
+                    "brand": _get_meta(meta, "brand", "Brand"),
+                    "name":  _get_meta(meta, "name", "Name", "title"),
+                    "score": float(match.get("score") or 0.0),
+                    "size_ml": meta.get("size_ml"),
+                    "metadata": meta
+                })
+            logger.info(f"[perfume_vdb] Fallback: kept top{len(perfumes)} without threshold")
+
         return perfumes
     except Exception as e:
-        logger.error(f"[search_perfume_vectordb] Error: {e}")
+        logger.error(f"[search_perfume_vectordb] Error: {e}", exc_info=True)
         return []
 
 def check_prices_and_filter(perfume_list: List[Dict], budget_info: Dict) -> List[Dict]:
-    """향수 리스트의 가격을 조회하고 예산 내 필터링"""
+    """향수 리스트의 가격을 조회하고 예산 내 필터링 (price_tool.invoke 사용)"""
     if not perfume_list:
         return []
     
@@ -171,90 +238,73 @@ def check_prices_and_filter(perfume_list: List[Dict], budget_info: Dict) -> List
     budget_matched = []
     
     for perfume in perfume_list:
-        brand = perfume.get('brand', '').strip()
-        name = perfume.get('name', '').strip()
+        brand = (perfume.get('brand') or "").strip()
+        name  = (perfume.get('name')  or "").strip()
         size_ml = perfume.get('size_ml')
-        
+
         if not (brand and name):
-            logger.warning(f"[check_prices_and_filter] Skipping perfume with missing brand/name: {perfume}")
+            logger.warning(f"[check_prices_and_filter] Skip: missing brand/name: {perfume}")
             continue
-            
-        logger.info(f"[check_prices_and_filter] Checking price for: {brand} {name}")
-        
+
         try:
-            # price_tool 호출 - JSON 모드로 결과 받기
-            price_result = price_tool(
-                user_query=f"{brand} {name}",
-                brand=brand,
-                name=name,
-                size_ml=size_ml,
-                topk_fetch=10,  # 더 많은 결과에서 찾기
-                topk_return=3,  # 최저가 3개까지 확인
-                return_json=True
-            )
-            
-            logger.info(f"[check_prices_and_filter] Price result: {price_result}")
-            
-            # 가격 정보가 있는지 확인
-            if isinstance(price_result, dict) and price_result.get('items'):
-                # 가장 저렴한 가격 사용
-                cheapest_item = price_result['items'][0]
-                price = cheapest_item['price']
-                title = cheapest_item['title']
-                
-                perfume['price'] = price
-                perfume['price_title'] = title
-                
-                logger.info(f"[check_prices_and_filter] Found price {price:,}원 for {brand} {name}")
-                
-                # 예산 필터링
-                is_within_budget = True  # 예산 정보가 없으면 모두 포함
-                
+            size_part = f" {int(size_ml)}ml" if size_ml else ""
+            query_str = f"{brand} {name}{size_part}".strip()
+
+            # ✅ LangChain Tool로 호출 (트레이스에 찍힘)
+            tool_res = price_tool.invoke({
+                "user_query": query_str,
+                "brand": brand,
+                "name": name,
+                "size_ml": size_ml,
+                "topk_fetch": 10,
+                "topk_return": 3,
+                "return_json": True
+            })
+
+            logger.info(f"[check_prices_and_filter] Price result: {tool_res}")
+
+            if isinstance(tool_res, dict) and tool_res.get("items"):
+                cheapest_item = tool_res["items"][0]
+                price = cheapest_item.get("price")
+                title = cheapest_item.get("title")
+                link  = cheapest_item.get("link") or cheapest_item.get("url")
+
+                perfume["price"] = price
+                perfume["price_title"] = title
+                perfume["detail_url"] = link
+
+                # 예산 체크
+                is_within_budget = True
                 if budget_info:
                     is_within_budget = False
-                    
-                    if budget_info.get('budget'):
-                        budget = budget_info['budget']
-                        op = budget_info.get('budget_op', 'eq')
-                        
-                        if op == 'lte' and price <= budget:
+                    if budget_info.get("budget"):
+                        budget = budget_info["budget"]
+                        op = budget_info.get("budget_op", "eq")
+                        if op == "lte" and price <= budget:
                             is_within_budget = True
-                            logger.info(f"[check_prices_and_filter] ✓ Within budget (≤{budget:,}): {price:,}")
-                        elif op == 'gte' and price >= budget:
+                        elif op == "gte" and price >= budget:
                             is_within_budget = True
-                            logger.info(f"[check_prices_and_filter] ✓ Within budget (≥{budget:,}): {price:,}")
-                        elif op == 'eq' and abs(price - budget) <= budget * 0.2:  # 20% 오차 허용
+                        elif op == "eq" and abs(price - budget) <= budget * 0.2:  # ±20% 허용
                             is_within_budget = True
-                            logger.info(f"[check_prices_and_filter] ✓ Within budget (~{budget:,}): {price:,}")
-                        else:
-                            logger.info(f"[check_prices_and_filter] ✗ Not within budget {op} {budget:,}: {price:,}")
-                            
-                    elif budget_info.get('budget_min') and budget_info.get('budget_max'):
-                        min_budget = budget_info['budget_min']
-                        max_budget = budget_info['budget_max']
-                        if min_budget <= price <= max_budget:
+                    elif budget_info.get("budget_min") and budget_info.get("budget_max"):
+                        if budget_info["budget_min"] <= price <= budget_info["budget_max"]:
                             is_within_budget = True
-                            logger.info(f"[check_prices_and_filter] ✓ Within range {min_budget:,}-{max_budget:,}: {price:,}")
-                        else:
-                            logger.info(f"[check_prices_and_filter] ✗ Not within range {min_budget:,}-{max_budget:,}: {price:,}")
-                
+
                 if is_within_budget:
                     budget_matched.append(perfume)
-                    
+
             else:
-                logger.warning(f"[check_prices_and_filter] No price found for {brand} {name}: {price_result}")
-                # 가격을 찾지 못한 경우 예산 정보가 없으면 포함, 있으면 제외
+                logger.warning(f"[check_prices_and_filter] No price items for {brand} {name}")
                 if not budget_info:
-                    perfume['price'] = None
-                    perfume['price_title'] = "가격 정보 없음"
+                    perfume["price"] = None
+                    perfume["price_title"] = "가격 정보 없음"
                     budget_matched.append(perfume)
-                    
+
         except Exception as e:
-            logger.error(f"[check_prices_and_filter] Price check failed for {brand} {name}: {e}")
-            # 오류 발생시 예산 정보가 없으면 포함
+            logger.exception(f"[check_prices_and_filter] price_tool failed for {brand} {name}: {e}")
             if not budget_info:
-                perfume['price'] = None
-                perfume['price_title'] = "가격 조회 실패"
+                perfume["price"] = None
+                perfume["price_title"] = "가격 조회 실패"
                 budget_matched.append(perfume)
             continue
     
@@ -263,13 +313,12 @@ def check_prices_and_filter(perfume_list: List[Dict], budget_info: Dict) -> List
 
 def generate_perfume_response(budget_matched: List[Dict], budget_info: Dict, scent_description: str):
     """
-    LLM_parser와 동일한 톤/형식으로 본문을 만들고,
-    rec_echo 호환 items(brand/name/size/detail_url)도 같이 반환.
+    LLM_parser와 동일 톤으로 본문 생성 + rec_echo 호환 items 반환
     return: (response_text, rec_items)
     """
     header = f"🌸 '{scent_description}' 취향에 맞는 향수를 찾았어요!\n\n"
 
-    # 예산 정보 라벨
+    # 예산 라벨
     budget_label = ""
     if budget_info:
         if budget_info.get("budget"):
@@ -288,16 +337,14 @@ def generate_perfume_response(budget_matched: List[Dict], budget_info: Dict, sce
     sorted_perfumes = sorted(budget_matched, key=lambda x: x.get("price", float("inf")))
 
     lines = []
-    rec_items = []  # rec_echo용
+    rec_items = []
     for i, p in enumerate(sorted_perfumes, 1):
         brand = (p.get("brand") or "").strip()
-        name = (p.get("name") or "").strip()
+        name  = (p.get("name")  or "").strip()
         price = p.get("price")
         price_title = p.get("price_title") or ""
         score = p.get("score", 0.0)
-        size_ml = _to_int_ml(p.get("size_ml"))
 
-        # 본문 한 줄
         lines.append(f"{i}. **{brand} {name}**")
         if price is not None:
             lines.append(f"   💰 최저가: {price:,}원")
@@ -308,12 +355,11 @@ def generate_perfume_response(budget_matched: List[Dict], budget_info: Dict, sce
             lines.append(f"   💰 가격: {price_title or '가격 정보 없음'}")
         lines.append(f"   🎯 유사도: {score:.2f}\n")
 
-        # rec_echo 표준 스키마
         rec_items.append({
             "brand": brand,
             "name": name,
-            "size": size_ml,
-            "detail_url": None,  # 가격툴에 링크가 있다면 여기 매핑하세요
+            "detail_url": p.get("detail_url"),  # 있으면 전달
+            # "size": None  # 리뷰노드에선 사이즈 불필수. 필요 시 넣기.
         })
 
     footer = (
@@ -321,7 +367,6 @@ def generate_perfume_response(budget_matched: List[Dict], budget_info: Dict, sce
         "• 가격은 변동될 수 있으니 구매 전 확인하세요\n"
         "• 향수는 개인차가 있으니 샘플 테스트를 권장합니다"
     )
-
     body = header + budget_label + "\n".join(lines) + footer
     return body, rec_items
 
@@ -340,24 +385,23 @@ def generate_final_llm_response(user_query: str, scent_description: str, price_q
             "scent_description": scent_description,
             "price_query": price_query
         })
-        
-        # LLM 응답에 안내 메시지 추가
         llm_content = getattr(response, "content", "")
-        final_response = llm_content + "\n\n"
-        final_response += "⚠️ **안내사항**\n"
-        final_response += "이 추천은 AI 추천으로 저희 scentpick에 없는 데이터일 수도 있습니다.\n"
-        final_response += "자세한 상품은 직접 쇼핑몰에서 확인하시기 바랍니다."
-        
+        final_response = llm_content + "\n\n" + \
+            "⚠️ **안내사항**\n" \
+            "이 추천은 AI 추천으로 저희 scentpick에 없는 데이터일 수도 있습니다.\n" \
+            "자세한 상품은 직접 쇼핑몰에서 확인하시기 바랍니다."
         return final_response
     except Exception as e:
-        logger.error(f"[generate_final_llm_response] Error: {e}")
+        logger.error(f"[generate_final_llm_response] Error: {e}", exc_info=True)
         return "죄송합니다. 추천을 생성하는 중에 오류가 발생했습니다."
 
 def is_review_agent_query(query: str) -> bool:
+    # 라우터에서 scent+price 조합만 review로 보내도록 제어하므로 여긴 true로 둬도 무방
     return True
 
 def review_agent_node(state: AgentState) -> AgentState:
     try:
+        # 최신 사용자 메시지
         messages = state.get("messages", [])
         user_query = ""
         for msg in reversed(messages):
@@ -365,10 +409,7 @@ def review_agent_node(state: AgentState) -> AgentState:
                 user_query = msg.content or ""
                 break
         if not user_query:
-            return {
-                "messages": [AIMessage(content="질문을 다시 입력해주세요.")],
-                "last_agent": "review_agent"
-            }
+            return {"messages": [AIMessage(content="질문을 다시 입력해주세요.")], "last_agent": "review_agent"}
 
         # 1) 파싱
         parsed_query = parse_user_query(user_query)
@@ -381,11 +422,7 @@ def review_agent_node(state: AgentState) -> AgentState:
         if not rag_results:
             llm_response = generate_final_llm_response(user_query, scent_description, price_query)
             summary = f"\n💬 추천 결과:\n\n{llm_response}"
-            return {
-                "messages": [AIMessage(content=summary)],
-                "final_answer": summary,
-                "last_agent": "review_agent"
-            }
+            return {"messages": [AIMessage(content=summary)], "final_answer": summary, "last_agent": "review_agent"}
 
         # 3) 분석
         analysis_result = analyze_rag_results(scent_description, rag_results)
@@ -396,11 +433,7 @@ def review_agent_node(state: AgentState) -> AgentState:
         if not perfume_candidates:
             llm_response = generate_final_llm_response(user_query, scent_description, price_query)
             summary = f"\n💬 추천 결과:\n\n{llm_response}"
-            return {
-                "messages": [AIMessage(content=summary)],
-                "final_answer": summary,
-                "last_agent": "review_agent"
-            }
+            return {"messages": [AIMessage(content=summary)], "final_answer": summary, "last_agent": "review_agent"}
 
         # 5) 리스트 정리
         perfume_list = [{
@@ -413,7 +446,7 @@ def review_agent_node(state: AgentState) -> AgentState:
         # 6) 가격 조회 + 예산 필터
         budget_matched = check_prices_and_filter(perfume_list, budget_info)
 
-        # 7) 최종 응답 생성 (LLM_parser와 동일한 래핑 형식)
+        # 7) 응답 생성
         if budget_matched:
             body, rec_items = generate_perfume_response(budget_matched, budget_info, scent_description)
             summary = f"\n💬 추천 결과:\n\n{body}"
@@ -421,13 +454,13 @@ def review_agent_node(state: AgentState) -> AgentState:
             entry = {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "source": "review_agent",
-                "items": rec_items,  # rec_echo에서 그대로 사용
+                "items": rec_items,  # rec_echo가 그대로 읽음
             }
 
             return {
                 "messages": [AIMessage(content=summary)],
                 "final_answer": summary,
-                "perfume_list": budget_matched,   # /chat에서 바로 노출
+                "perfume_list": budget_matched,   # 프론트 노출
                 "rec_history": [entry],           # rec_echo 호환
                 "last_agent": "review_agent",
             }
@@ -440,7 +473,6 @@ def review_agent_node(state: AgentState) -> AgentState:
                     budget_text = f"{budget:,}원 {'이하' if op == 'lte' else '이상' if op == 'gte' else '대'}"
                 else:
                     budget_text = f"{budget_info.get('budget_min', 0):,}원~{budget_info.get('budget_max', 0):,}원"
-
                 fallback_msg = (
                     f"😔 '{scent_description}' 취향과 {budget_text} 예산에 맞는 향수를 찾지 못했어요.\n\n"
                     "💡 다음을 시도해보세요:\n"
@@ -454,16 +486,15 @@ def review_agent_node(state: AgentState) -> AgentState:
             llm_response = generate_final_llm_response(user_query, scent_description, price_query)
             summary = f"\n💬 추천 결과:\n\n{fallback_msg}🤖 **AI 추천**:\n{llm_response}"
 
-            # rec_history는 후보가 없으므로 생략하거나 빈 배열
             return {
                 "messages": [AIMessage(content=summary)],
                 "final_answer": summary,
-                "perfume_list": perfume_list,  # 원 후보 (가격 미적합일 수 있음)
+                "perfume_list": perfume_list,  # 원 후보(가격 미적합일 수 있음)
                 "last_agent": "review_agent",
             }
 
     except Exception as e:
-        logger.error(f"[review_agent_node] Error: {e}")
+        logger.error(f"[review_agent_node] Error: {e}", exc_info=True)
         return {
             "messages": [AIMessage(content="죄송합니다. 추천 과정에서 오류가 발생했습니다. 다시 시도해주세요.")],
             "last_agent": "review_agent",
