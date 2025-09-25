@@ -31,18 +31,8 @@ graph.add_node("review_agent", review_agent_node)
 graph.set_entry_point("supervisor")
 
 # 조건부 라우팅 함수 (안전하게 .get 사용)
-# yyh
 def router_edge(state: AgentState) -> str:
-    # --- (향설명 + 가격) 강제 라우팅 가드 ---
-    msgs = state.get("messages") or []
-    last = msgs[-1] if msgs else None
-    q = getattr(last, "content", "") or ""
-    if is_review_agent_query(q):
-        print(f"[ROUTER] review_agent 강제 선택 (query='{q}')", flush=True)
-        return "review_agent"
-    # 👇 이 줄 추가 (기존 supervisor 결과 따라가도록)
     return state.get("next") or "human_fallback"
-# yyh
 
 # supervisor → 각 에이전트 분기
 graph.add_conditional_edges(

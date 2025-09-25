@@ -122,7 +122,7 @@ async def generate_ai_response_streaming(query: str, thread_id: str):
             await asyncio.sleep(0.05)  # 스트리밍 효과를 위한 지연
 
         # 추천 리스트 처리
-        ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo"}
+        ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo","review_agent"}
         allow_list = chosen in ALLOW_NODES
 
         perfume_list = None
@@ -232,7 +232,7 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         chosen_agent   = ai_output.get("chosen_agent")
 
         # ✅ 추천 리스트 노출 허용 노드
-        ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo"}
+        ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo","review_agent"}
         allow_list = chosen_agent in ALLOW_NODES
 
         # ✅ perfume_list: 허용 노드일 때만 구성 (아니면 None)
