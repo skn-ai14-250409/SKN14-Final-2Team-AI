@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from ..state import AgentState
 from ..config import llm
 from ..tools.price_parse import extract_budget_krw
-from ..tools.tools_price import price_tool  # LangChain Tool로 가정(.invoke 사용)
+from ..tools.tools_price import price_tool  # LangChain Tool(.invoke)
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ PERFUME_INDEX_NAME = "perfume-vectordb"
 review_index = pc.Index(REVIEW_INDEX_NAME)
 perfume_index = pc.Index(PERFUME_INDEX_NAME)
 
-# 🔽 유사도 임계값 (너무 엄격하면 후보가 안 나옵니다)
+# 🔽 유사도 임계값 (None이면 필터 미적용)
 MIN_SIMILARITY_THRESHOLD = None
 
 # ---------------------------
@@ -141,7 +141,7 @@ def analyze_rag_results(scent_description: str, rag_results: List[Dict]) -> Dict
             c = c[:600] + " ..."
         rag_text += f"{i}. {b} {n}: {c}\n"
 
-    # 🔧 중괄호 이스케이프(매우 중요!)
+    # 🔧 중괄호 이스케이프
     prompt = ChatPromptTemplate.from_messages([
         ("system", """다음은 향수 리뷰 데이터베이스에서 검색된 결과입니다.
 사용자가 원하는 향의 특성을 분석해서 JSON으로 반환해주세요.
@@ -177,7 +177,7 @@ def search_perfume_vectordb(analyzed_scent: str, top_k: int = 10) -> List[Dict[s
         query_embedding = get_openai_embedding(analyzed_scent)
         results = perfume_index.query(
             vector=query_embedding,
-            top_k=top_k,              # ← 3 -> 10
+            top_k=top_k,              # 3 -> 10
             include_metadata=True
         )
         matches = results.get("matches") or []
@@ -185,18 +185,15 @@ def search_perfume_vectordb(analyzed_scent: str, top_k: int = 10) -> List[Dict[s
             logger.warning("[search_perfume_vectordb] No matches at all")
             return []
 
-        # 🔎 디버깅: 상위 5개 점수와 일부 메타 확인
+        # 디버깅 로그
         for i, m in enumerate(matches[:5], 1):
             logger.info(f"[perfume_vdb] top{i} score={m.get('score')} meta_keys={list((m.get('metadata') or {}).keys())[:5]}")
 
-        # 1) 임계값 필터 제거/완화
-        # 2) 대신 상위 n개만 사용
         perfumes = []
-        for match in matches[:5]:     # 상위 5개만 채택
+        for match in matches[:5]:     # 상위 5개 채택
             meta = match.get("metadata", {}) or {}
             score = match.get("score", 0.0)
 
-            # 만약 꼭 임계값을 쓰고 싶다면 아주 낮게
             if MIN_SIMILARITY_THRESHOLD is not None and score is not None:
                 if score < MIN_SIMILARITY_THRESHOLD:
                     continue
@@ -209,7 +206,7 @@ def search_perfume_vectordb(analyzed_scent: str, top_k: int = 10) -> List[Dict[s
                 "metadata": meta
             })
 
-        # 🔁 최종 안전장치: 필터로 다 날렸다면 top3는 무조건 살려두기
+        # 필터로 다 날렸다면 top3는 무조건 살림
         if not perfumes:
             for match in matches[:3]:
                 meta = match.get("metadata", {}) or {}
@@ -250,7 +247,7 @@ def check_prices_and_filter(perfume_list: List[Dict], budget_info: Dict) -> List
             size_part = f" {int(size_ml)}ml" if size_ml else ""
             query_str = f"{brand} {name}{size_part}".strip()
 
-            # ✅ LangChain Tool로 호출 (트레이스에 찍힘)
+            # LangChain Tool 호출
             tool_res = price_tool.invoke({
                 "user_query": query_str,
                 "brand": brand,
@@ -358,8 +355,8 @@ def generate_perfume_response(budget_matched: List[Dict], budget_info: Dict, sce
         rec_items.append({
             "brand": brand,
             "name": name,
-            "detail_url": p.get("detail_url"),  # 있으면 전달
-            # "size": None  # 리뷰노드에선 사이즈 불필수. 필요 시 넣기.
+            "detail_url": p.get("detail_url"),
+            # 리뷰노드는 사이즈 선택 필수 아님
         })
 
     footer = (
@@ -396,7 +393,7 @@ def generate_final_llm_response(user_query: str, scent_description: str, price_q
         return "죄송합니다. 추천을 생성하는 중에 오류가 발생했습니다."
 
 def is_review_agent_query(query: str) -> bool:
-    # 라우터에서 scent+price 조합만 review로 보내도록 제어하므로 여긴 true로 둬도 무방
+    # 라우터에서 scent+price 조합만 review로 보내도록 제어
     return True
 
 def review_agent_node(state: AgentState) -> AgentState:
@@ -409,7 +406,15 @@ def review_agent_node(state: AgentState) -> AgentState:
                 user_query = msg.content or ""
                 break
         if not user_query:
-            return {"messages": [AIMessage(content="질문을 다시 입력해주세요.")], "last_agent": "review_agent"}
+            ans = "질문을 다시 입력해주세요."
+            return {
+                "messages": [AIMessage(content=ans)],
+                "final_answer": ans,
+                "perfume_list": [],
+                "search_results": {"matches": []},
+                "rec_history": [],
+                "last_agent": "review_agent"
+            }
 
         # 1) 파싱
         parsed_query = parse_user_query(user_query)
@@ -422,7 +427,14 @@ def review_agent_node(state: AgentState) -> AgentState:
         if not rag_results:
             llm_response = generate_final_llm_response(user_query, scent_description, price_query)
             summary = f"\n💬 추천 결과:\n\n{llm_response}"
-            return {"messages": [AIMessage(content=summary)], "final_answer": summary, "last_agent": "review_agent"}
+            return {
+                "messages": [AIMessage(content=summary)],
+                "final_answer": summary,
+                "perfume_list": [],
+                "search_results": {"matches": []},
+                "rec_history": [],
+                "last_agent": "review_agent"
+            }
 
         # 3) 분석
         analysis_result = analyze_rag_results(scent_description, rag_results)
@@ -433,7 +445,14 @@ def review_agent_node(state: AgentState) -> AgentState:
         if not perfume_candidates:
             llm_response = generate_final_llm_response(user_query, scent_description, price_query)
             summary = f"\n💬 추천 결과:\n\n{llm_response}"
-            return {"messages": [AIMessage(content=summary)], "final_answer": summary, "last_agent": "review_agent"}
+            return {
+                "messages": [AIMessage(content=summary)],
+                "final_answer": summary,
+                "perfume_list": [],
+                "search_results": {"matches": []},
+                "rec_history": [],
+                "last_agent": "review_agent"
+            }
 
         # 5) 리스트 정리
         perfume_list = [{
@@ -454,14 +473,15 @@ def review_agent_node(state: AgentState) -> AgentState:
             entry = {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "source": "review_agent",
-                "items": rec_items,  # rec_echo가 그대로 읽음
+                "items": rec_items,  # rec_echo 사용
             }
 
             return {
                 "messages": [AIMessage(content=summary)],
                 "final_answer": summary,
-                "perfume_list": budget_matched,   # 프론트 노출
-                "rec_history": [entry],           # rec_echo 호환
+                "perfume_list": budget_matched,     # 프론트 노출
+                "search_results": {"matches": []},  # 중복 복구 방지
+                "rec_history": [entry],             # rec_echo 호환
                 "last_agent": "review_agent",
             }
         else:
@@ -489,14 +509,21 @@ def review_agent_node(state: AgentState) -> AgentState:
             return {
                 "messages": [AIMessage(content=summary)],
                 "final_answer": summary,
-                "perfume_list": perfume_list,  # 원 후보(가격 미적합일 수 있음)
+                "perfume_list": [],                  # 리스트 비움
+                "search_results": {"matches": []},   # 복구 방지
+                "rec_history": [],
                 "last_agent": "review_agent",
             }
 
     except Exception as e:
         logger.error(f"[review_agent_node] Error: {e}", exc_info=True)
+        ans = "죄송합니다. 추천 과정에서 오류가 발생했습니다. 다시 시도해주세요."
         return {
-            "messages": [AIMessage(content="죄송합니다. 추천 과정에서 오류가 발생했습니다. 다시 시도해주세요.")],
+            "messages": [AIMessage(content=ans)],
+            "final_answer": ans,
+            "perfume_list": [],
+            "search_results": {"matches": []},
+            "rec_history": [],
             "last_agent": "review_agent",
             "last_error": str(e)
         }
