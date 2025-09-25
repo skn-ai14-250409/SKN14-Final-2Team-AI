@@ -261,53 +261,69 @@ def check_prices_and_filter(perfume_list: List[Dict], budget_info: Dict) -> List
     logger.info(f"[check_prices_and_filter] Final matched: {len(budget_matched)}/{len(perfume_list)}")
     return budget_matched
 
-def generate_perfume_response(budget_matched: List[Dict], budget_info: Dict, scent_description: str) -> str:
-    """예산에 맞는 향수들의 응답 생성"""
-    response_text = f"🌸 '{scent_description}' 취향에 맞는 향수를 찾았어요!\n\n"
-    
-    # 예산 정보 표시
+def generate_perfume_response(budget_matched: List[Dict], budget_info: Dict, scent_description: str):
+    """
+    LLM_parser와 동일한 톤/형식으로 본문을 만들고,
+    rec_echo 호환 items(brand/name/size/detail_url)도 같이 반환.
+    return: (response_text, rec_items)
+    """
+    header = f"🌸 '{scent_description}' 취향에 맞는 향수를 찾았어요!\n\n"
+
+    # 예산 정보 라벨
+    budget_label = ""
     if budget_info:
-        if budget_info.get('budget'):
-            budget = budget_info['budget']
-            op = budget_info.get('budget_op', 'eq')
-            if op == 'lte':
-                response_text += f"💰 예산 {budget:,}원 이하 범위 내 추천:\n\n"
-            elif op == 'gte':
-                response_text += f"💰 예산 {budget:,}원 이상 범위 내 추천:\n\n"
+        if budget_info.get("budget"):
+            budget = budget_info["budget"]
+            op = budget_info.get("budget_op", "eq")
+            if op == "lte":
+                budget_label = f"💰 예산 {budget:,}원 이하 범위 내 추천:\n\n"
+            elif op == "gte":
+                budget_label = f"💰 예산 {budget:,}원 이상 범위 내 추천:\n\n"
             else:
-                response_text += f"💰 예산 약 {budget:,}원 범위 내 추천:\n\n"
-        elif budget_info.get('budget_min') and budget_info.get('budget_max'):
-            response_text += f"💰 예산 {budget_info['budget_min']:,}원~{budget_info['budget_max']:,}원 범위 내 추천:\n\n"
-    
-    # 향수 정보 표시 (가격순 정렬)
-    sorted_perfumes = sorted(budget_matched, key=lambda x: x.get('price', float('inf')))
-    
-    for i, perfume in enumerate(sorted_perfumes, 1):
-        brand = perfume.get('brand', '')
-        name = perfume.get('name', '')
-        score = perfume.get('score', 0)
-        price = perfume.get('price')
-        price_title = perfume.get('price_title', '')
-        
-        response_text += f"{i}. **{brand} {name}**\n"
-        
-        if price:
-            response_text += f"   💰 최저가: {price:,}원\n"
-            if price_title and len(price_title) > 0:
-                # 제목이 너무 길면 자르기
+                budget_label = f"💰 예산 약 {budget:,}원 범위 내 추천:\n\n"
+        elif budget_info.get("budget_min") and budget_info.get("budget_max"):
+            budget_label = f"💰 예산 {budget_info['budget_min']:,}원~{budget_info['budget_max']:,}원 범위 내 추천:\n\n"
+
+    # 가격순 정렬
+    sorted_perfumes = sorted(budget_matched, key=lambda x: x.get("price", float("inf")))
+
+    lines = []
+    rec_items = []  # rec_echo용
+    for i, p in enumerate(sorted_perfumes, 1):
+        brand = (p.get("brand") or "").strip()
+        name = (p.get("name") or "").strip()
+        price = p.get("price")
+        price_title = p.get("price_title") or ""
+        score = p.get("score", 0.0)
+        size_ml = _to_int_ml(p.get("size_ml"))
+
+        # 본문 한 줄
+        lines.append(f"{i}. **{brand} {name}**")
+        if price is not None:
+            lines.append(f"   💰 최저가: {price:,}원")
+            if price_title:
                 display_title = price_title[:50] + "..." if len(price_title) > 50 else price_title
-                response_text += f"   🛒 상품: {display_title}\n"
+                lines.append(f"   🛒 상품: {display_title}")
         else:
-            response_text += f"   💰 가격: {price_title}\n"
-            
-        response_text += f"   🎯 유사도: {score:.2f}\n\n"
-    
-    # 주의사항 추가
-    response_text += "📝 **참고사항**\n"
-    response_text += "• 가격은 변동될 수 있으니 구매 전 확인하세요\n"
-    response_text += "• 향수는 개인차가 있으니 샘플 테스트를 권장합니다\n"
-    
-    return response_text
+            lines.append(f"   💰 가격: {price_title or '가격 정보 없음'}")
+        lines.append(f"   🎯 유사도: {score:.2f}\n")
+
+        # rec_echo 표준 스키마
+        rec_items.append({
+            "brand": brand,
+            "name": name,
+            "size": size_ml,
+            "detail_url": None,  # 가격툴에 링크가 있다면 여기 매핑하세요
+        })
+
+    footer = (
+        "📝 **참고사항**\n"
+        "• 가격은 변동될 수 있으니 구매 전 확인하세요\n"
+        "• 향수는 개인차가 있으니 샘플 테스트를 권장합니다"
+    )
+
+    body = header + budget_label + "\n".join(lines) + footer
+    return body, rec_items
 
 def generate_final_llm_response(user_query: str, scent_description: str, price_query: str) -> str:
     """조건에 맞는 향수가 없을 때 LLM이 직접 추천"""
@@ -353,88 +369,99 @@ def review_agent_node(state: AgentState) -> AgentState:
                 "messages": [AIMessage(content="질문을 다시 입력해주세요.")],
                 "last_agent": "review_agent"
             }
-        
-        # 1단계: 사용자 쿼리 파싱
+
+        # 1) 파싱
         parsed_query = parse_user_query(user_query)
         scent_description = parsed_query["scent_description"]
         price_query = parsed_query["price_query"]
         budget_info = extract_budget_krw(price_query) if price_query else {}
-        
-        # 2단계: 리뷰 데이터베이스 RAG 검색
+
+        # 2) 리뷰 RAG
         rag_results = search_review_vectordb(scent_description)
         if not rag_results:
             llm_response = generate_final_llm_response(user_query, scent_description, price_query)
+            summary = f"\n💬 추천 결과:\n\n{llm_response}"
             return {
-                "messages": [AIMessage(content=llm_response)],
+                "messages": [AIMessage(content=summary)],
+                "final_answer": summary,
                 "last_agent": "review_agent"
             }
-        
-        # 3단계: RAG 결과 분석
+
+        # 3) 분석
         analysis_result = analyze_rag_results(scent_description, rag_results)
         analyzed_scent = analysis_result["analyzed_scent"]
-        
-        # 4단계: 향수 데이터베이스에서 유사 향수 검색
+
+        # 4) 향수 후보
         perfume_candidates = search_perfume_vectordb(analyzed_scent)
         if not perfume_candidates:
             llm_response = generate_final_llm_response(user_query, scent_description, price_query)
+            summary = f"\n💬 추천 결과:\n\n{llm_response}"
             return {
-                "messages": [AIMessage(content=llm_response)],
+                "messages": [AIMessage(content=summary)],
+                "final_answer": summary,
                 "last_agent": "review_agent"
             }
-        
-        # 5단계: 향수 리스트 정리
+
+        # 5) 리스트 정리
         perfume_list = [{
-            'brand': p.get('brand', ''),
-            'name': p.get('name', ''),
-            'score': p.get('score', 0.0),
-            'size_ml': p.get('size_ml')
+            "brand": p.get("brand", ""),
+            "name": p.get("name", ""),
+            "score": p.get("score", 0.0),
+            "size_ml": p.get("size_ml"),
         } for p in perfume_candidates]
-        
-        # 6단계: 가격 조회 및 예산 필터링
+
+        # 6) 가격 조회 + 예산 필터
         budget_matched = check_prices_and_filter(perfume_list, budget_info)
-        
-        # 7단계: 최종 응답 생성
+
+        # 7) 최종 응답 생성 (LLM_parser와 동일한 래핑 형식)
         if budget_matched:
-            response_text = generate_perfume_response(budget_matched, budget_info, scent_description)
+            body, rec_items = generate_perfume_response(budget_matched, budget_info, scent_description)
+            summary = f"\n💬 추천 결과:\n\n{body}"
+
+            entry = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "source": "review_agent",
+                "items": rec_items,  # rec_echo에서 그대로 사용
+            }
+
             return {
-                "messages": [AIMessage(content=response_text)],
-                "perfume_list": budget_matched,
-                "last_agent": "review_agent"
+                "messages": [AIMessage(content=summary)],
+                "final_answer": summary,
+                "perfume_list": budget_matched,   # /chat에서 바로 노출
+                "rec_history": [entry],           # rec_echo 호환
+                "last_agent": "review_agent",
             }
         else:
-            # 조건에 맞는 향수가 없을 때
+            # 조건 미매칭 → 안내 + LLM 백업
             if budget_info:
-                if budget_info.get('budget'):
-                    budget = budget_info['budget']
-                    op = budget_info.get('budget_op', 'eq')
+                if budget_info.get("budget"):
+                    budget = budget_info["budget"]
+                    op = budget_info.get("budget_op", "eq")
                     budget_text = f"{budget:,}원 {'이하' if op == 'lte' else '이상' if op == 'gte' else '대'}"
                 else:
                     budget_text = f"{budget_info.get('budget_min', 0):,}원~{budget_info.get('budget_max', 0):,}원"
-                
-                fallback_msg = f"😔 '{scent_description}' 취향과 {budget_text} 예산에 맞는 향수를 찾지 못했어요.\n\n"
-                fallback_msg += "💡 다음을 시도해보세요:\n"
-                fallback_msg += "• 예산 범위를 조금 늘려보세요\n"
-                fallback_msg += "• 향의 특성을 다르게 표현해보세요\n"
-                fallback_msg += "• 구체적인 브랜드나 제품명을 알려주세요\n\n"
-                
-                # LLM 추천도 포함
-                llm_response = generate_final_llm_response(user_query, scent_description, price_query)
-                fallback_msg += f"🤖 **AI 추천**:\n{llm_response}"
-                
-                return {
-                    "messages": [AIMessage(content=fallback_msg)],
-                    "perfume_list": perfume_list,
-                    "last_agent": "review_agent"
-                }
+
+                fallback_msg = (
+                    f"😔 '{scent_description}' 취향과 {budget_text} 예산에 맞는 향수를 찾지 못했어요.\n\n"
+                    "💡 다음을 시도해보세요:\n"
+                    "• 예산 범위를 조금 늘려보세요\n"
+                    "• 향의 특성을 다르게 표현해보세요\n"
+                    "• 구체적인 브랜드나 제품명을 알려주세요\n\n"
+                )
             else:
-                # 예산 정보 없이도 매칭 실패
-                llm_response = generate_final_llm_response(user_query, scent_description, price_query)
-                return {
-                    "messages": [AIMessage(content=llm_response)],
-                    "perfume_list": perfume_list,
-                    "last_agent": "review_agent"
-                }
-                
+                fallback_msg = "😔 조건에 맞는 향수를 찾지 못했어요.\n\n"
+
+            llm_response = generate_final_llm_response(user_query, scent_description, price_query)
+            summary = f"\n💬 추천 결과:\n\n{fallback_msg}🤖 **AI 추천**:\n{llm_response}"
+
+            # rec_history는 후보가 없으므로 생략하거나 빈 배열
+            return {
+                "messages": [AIMessage(content=summary)],
+                "final_answer": summary,
+                "perfume_list": perfume_list,  # 원 후보 (가격 미적합일 수 있음)
+                "last_agent": "review_agent",
+            }
+
     except Exception as e:
         logger.error(f"[review_agent_node] Error: {e}")
         return {
