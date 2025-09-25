@@ -19,12 +19,8 @@ Notes:
 - facet_count = number of non-null values in "facets".
 
 [Price intent keywords (not exhaustive)]
-- Korean: 가격, 얼마, 가격대, 구매, 판매, 할인, 어디서 사, 어디서사, 배송비, 최저가, 쿠폰, 세일, 특가, 프로모션, 만원대, 원대
+- Korean: 가격, 얼마, 가격대, 구매, 판매, 할인, 어디서 사, 어디서사, 배송비, 최저가, 쿠폰, 세일, 특가, 프로모션
 - English: price, cost, cheapest, buy, purchase, discount, deal, promotion
-
-[Non-perfume product keywords → route to human_fallback]
-- Korean examples: 데오드란트, 데오드런트, 틴트, 립틴트, 섬유유연제, 방향제, 탈취제, 디퓨저, 캔들, 룸스프레이, 페브릭미스트, 섬유향수(섬유용), 차량용 방향제
-- English examples: deodorant, tint, fabric softener, air freshener, deodorizer, diffuser, candle, room spray, fabric spray, car freshener
 
 [Inputs provided to you]
 - USER_QUERY  : latest user message
@@ -50,14 +46,13 @@ Notes:
 1) Non-perfume / off-topic → human_fallback (intent="non_perfume")
 2) Pure price-only intent (no product facets) → price_agent (intent="price")
 3) If query contains BOTH a scent preference (facet or vibe) AND a price intent → review_agent  (intent="scent_price")
-4) Scent-only single-preference queries (including "~향", "~향 나는/느낌", "~scent") with NO price intent → ML_agent (intent="scent_pref")
-5) Count product facets in the query (without price intent):
+4) Count product facets in the query (without price intent):
    - If facets ≥ 2 → LLM_parser (intent="other" or "scent_pref" if it matches a vibe)
-6) Otherwise:
+5) Otherwise:
    - Pure price query with a specific brand/product → price_agent (intent="price")
    - Perfume knowledge/definitions (e.g., "뜻", "차이", "정의", "어원") → FAQ_agent (intent="faq")
    - Single taste/mood recommendation (e.g., "달달한 향", "포근한 겨울향") → ML_agent (intent="scent_pref")
-7) Tie-breakers:
+6) Tie-breakers:
    - Complex/multi-aspect → LLM_parser
    - Pure price → price_agent
    - Else: knowledge → FAQ_agent, taste → ML_agent
@@ -117,12 +112,12 @@ REC_CONTEXT:
 LAST_AGENT: ML_agent
 -> {{ "next":"price_agent","intent":"price","followup":true,"followup_reference":{{"index":2,"name":"Dior Sauvage"}},"reason":"Price question about candidate #2","confidence":0.90,"facet_count":0,"facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null}},"scent_vibe":null }}
 
-EX3) (single-preference recommendation — scent-only)
-USER_QUERY: 달달한 바닐라 향나는 향수 추천해줘
+EX3) (single-preference recommendation)
+USER_QUERY: 여름에 달달한 향 추천해줘
 REC_CONTEXT:
 (none)
 LAST_AGENT: null
--> {{ "next":"ML_agent","intent":"scent_pref","followup":false,"followup_reference":{{"index":null,"name":null}},"reason":"Scent-only single preference without price intent","confidence":0.90,"facet_count":1,"facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null}},"scent_vibe":"vanilla_sweet" }}
+-> {{ "next":"ML_agent","intent":"scent_pref","followup":false,"followup_reference":{{"index":null,"name":null}},"reason":"Single taste/mood recommendation","confidence":0.88,"facet_count":1,"facets":{{"brand":null,"season":"summer","gender":null,"sizes":null,"day_night_score":null,"concentration":null}},"scent_vibe":"sweet" }}
 
 EX4) (detail follow-up for candidate #3)
 USER_QUERY: 3번 노트 알려줘
@@ -156,49 +151,24 @@ REC_CONTEXT:
 2. Dior Eau Sauvage Parfum
 3. YSL Mon Paris EDP
 LAST_AGENT: ML_agent
--> {{ "next":"price_agent","intent":"price","followup":true,
-     "followup_reference":{{"index":null,"name":null}},
+-> { "next":"price_agent","intent":"price","followup":true,
+     "followup_reference":{"index":null,"name":null},
      "reason":"Wants prices for the whole previous list under a given budget",
      "confidence":0.91,"facet_count":0,
-     "facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
-               "budget":100000,"budget_min":null,"budget_max":null,"budget_op":"lte","currency":"KRW"}},
-     "scent_vibe":null }}
+     "facets":{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
+               "budget":100000,"budget_min":null,"budget_max":null,"budget_op":"lte","currency":"KRW"},
+     "scent_vibe":null }
 
 EX8) (scent preference + price together → review_agent)
 USER_QUERY: 히노키숲향 향수 추천해주고 가격도 알려줘
 REC_CONTEXT:
 (none)
 LAST_AGENT: null
--> {{ "next":"review_agent","intent":"scent_price","followup":false,
-     "followup_reference":{{"index":null,"name":null}},
+-> { "next":"review_agent","intent":"scent_price","followup":false,
+     "followup_reference":{"index":null,"name":null},
      "reason":"User gave both a scent vibe (forest/wood) and a price intent",
      "confidence":0.91,"facet_count":1,
-     "facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
-               "budget":null,"budget_min":null,"budget_max":null,"budget_op":null,"currency":null}},
-     "scent_vibe":"hinoki_forest" }}
-
-EX9) (price-only single intent — “만원대”)
-USER_QUERY: 10만원대 향수 추천해줘
-REC_CONTEXT:
-(none)
-LAST_AGENT: null
--> {{ "next":"price_agent","intent":"price","followup":false,
-     "followup_reference":{{"index":null,"name":null}},
-     "reason":"Pure price-only single intent without product facets",
-     "confidence":0.90,"facet_count":0,
-     "facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
-               "budget":100000,"budget_min":null,"budget_max":null,"budget_op":"approx","currency":"KRW"}},
-     "scent_vibe":null }}
-
-EX10) (non-perfume product → human_fallback)
-USER_QUERY: 데오드란트 추천해줘
-REC_CONTEXT:
-(none)
-LAST_AGENT: null
--> {{ "next":"human_fallback","intent":"non_perfume","followup":false,
-     "followup_reference":{{"index":null,"name":null}},
-     "reason":"Asks for a non-perfume product category (deodorant)",
-     "confidence":0.92,"facet_count":0,
-     "facets":{{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null}},
-     "scent_vibe":null }}
+     "facets":{"brand":null,"season":null,"gender":null,"sizes":null,"day_night_score":null,"concentration":null,
+               "budget":null,"budget_min":null,"budget_max":null,"budget_op":null,"currency":null},
+     "scent_vibe":"hinoki_forest" }
 """.strip()
