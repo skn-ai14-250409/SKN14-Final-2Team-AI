@@ -1,4 +1,3 @@
-# scentpick/mas/nodes/review_agent_node.py
 import json
 import logging
 from typing import Dict, Any, List
@@ -325,7 +324,15 @@ def generate_final_llm_response(user_query: str, scent_description: str, price_q
             "scent_description": scent_description,
             "price_query": price_query
         })
-        return getattr(response, "content", "")
+        
+        # LLM 응답에 안내 메시지 추가
+        llm_content = getattr(response, "content", "")
+        final_response = llm_content + "\n\n"
+        final_response += "⚠️ **안내사항**\n"
+        final_response += "이 추천은 AI 추천으로 저희 scentpick에 없는 데이터일 수도 있습니다.\n"
+        final_response += "자세한 상품은 직접 쇼핑몰에서 확인하시기 바랍니다."
+        
+        return final_response
     except Exception as e:
         logger.error(f"[generate_final_llm_response] Error: {e}")
         return "죄송합니다. 추천을 생성하는 중에 오류가 발생했습니다."
