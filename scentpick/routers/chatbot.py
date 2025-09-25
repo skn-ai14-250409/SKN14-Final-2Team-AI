@@ -45,11 +45,12 @@ def get_db():
 # -----------------------------
 # AI 응답 생성 함수
 # -----------------------------
-def generate_ai_response(query: str, thread_id: str) -> dict:
+def generate_ai_response(query: str, thread_id: str, image_url: Optional[str] = None) -> dict:
     init_state = {
         "messages": [HumanMessage(content=query)],
         "next": None,
         "router_json": None,
+        "image_url": image_url,
     }
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -86,7 +87,7 @@ def generate_ai_response(query: str, thread_id: str) -> dict:
 # -----------------------------
 # AI 응답 스트리밍 생성 함수
 # -----------------------------
-async def generate_ai_response_streaming(query: str, thread_id: str):
+async def generate_ai_response_streaming(query: str, thread_id: str, image_url: Optional[str] = None):
     """
     스트리밍 방식으로 AI 응답을 생성합니다.
     각 청크를 yield하여 실시간으로 응답을 전송합니다.
@@ -95,6 +96,7 @@ async def generate_ai_response_streaming(query: str, thread_id: str):
         "messages": [HumanMessage(content=query)],
         "next": None,
         "router_json": None,
+        "image_url": image_url,
     }
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -122,7 +124,7 @@ async def generate_ai_response_streaming(query: str, thread_id: str):
             await asyncio.sleep(0.05)  # 스트리밍 효과를 위한 지연
 
         # 추천 리스트 처리
-        ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo","review_agent"}
+        ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo","review_agent", "multimodal_agent"}
         allow_list = chosen in ALLOW_NODES
 
         perfume_list = None
@@ -165,9 +167,10 @@ async def generate_ai_response_streaming(query: str, thread_id: str):
 # -----------------------------
 class ChatRequest(BaseModel):
     user_id: int
-    query: str = Field(..., min_length=1)
+    query: str = Field("", min_length=0) # 빈 문자열 허용 (이미지 단독 전송 가능)
     conversation_id: Optional[int] = None
     stream: Optional[bool] = False
+    image_url: Optional[str] = None   # 이미지 URL 전달용
 
 class ChatResponse(BaseModel):
     conversation_id: int
@@ -203,7 +206,12 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
                 )
         else:
             thread_id = str(uuid.uuid4())
-            title = request.query[:15]
+
+            if len(request.query) > 15:
+                title = request.query[:15] + "..."
+            else:
+                title = request.query
+
             res = db.execute(
                 text("""
                     INSERT INTO conversations (user_id, title, external_thread_id, started_at, updated_at)
@@ -216,26 +224,26 @@ def django_chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
         # 2) 사용자 메시지 저장
         res = db.execute(
             text("""
-                INSERT INTO messages (conversation_id, role, content, model, created_at)
-                VALUES (:cid, 'user', :content, NULL, :now)
+                INSERT INTO messages (conversation_id, role, content, model, chat_image, created_at)
+                VALUES (:cid, 'user', :content, NULL, :image, :now)
             """),
-            {"cid": conv_id, "content": request.query, "now": now},
+            {"cid": conv_id, "content": request.query, "image": request.image_url, "now": now},
         )
         request_msg_id = res.lastrowid
 
         # 3) AI 응답 생성 (추천 후보 포함)
-        ai_output = generate_ai_response(request.query, thread_id)
+        ai_output = generate_ai_response(request.query, thread_id, request.image_url)
 
         ai_answer      = ai_output["answer"]
         parsed_slots   = ai_output.get("parsed_slots", {})
         search_results = ai_output.get("search_results", {"matches": []})
         chosen_agent   = ai_output.get("chosen_agent")
 
-        # ✅ 추천 리스트 노출 허용 노드
-        ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo","review_agent"}
+        # 추천 리스트 노출 허용 노드
+        ALLOW_NODES = {"LLM_parser", "ML_agent", "rec_echo","review_agent", "multimodal_agent"}
         allow_list = chosen_agent in ALLOW_NODES
 
-        # ✅ perfume_list: 허용 노드일 때만 구성 (아니면 None)
+        # perfume_list: 허용 노드일 때만 구성 (아니면 None)
         perfume_list = None
         if allow_list:
             perfume_list = ai_output.get("perfume_list") or []
@@ -433,7 +441,12 @@ async def chat_stream(
                     )
             else:
                 thread_id = str(uuid.uuid4())
-                title = query[:15]
+                
+                if len(query) > 15:
+                    title = query[:15] + "..."
+                else:
+                    title = query
+
                 res = db.execute(
                     text("""
                         INSERT INTO conversations (user_id, title, external_thread_id, started_at, updated_at)
@@ -446,10 +459,10 @@ async def chat_stream(
             # 2) 사용자 메시지 저장
             res = db.execute(
                 text("""
-                    INSERT INTO messages (conversation_id, role, content, model, created_at)
-                    VALUES (:cid, 'user', :content, NULL, :now)
+                    INSERT INTO messages (conversation_id, role, content, model, chat_image, created_at)
+                    VALUES (:cid, 'user', :content, NULL, :image, :now)
                 """),
-                {"cid": conv_id, "content": query, "now": now},
+                {"cid": conv_id, "content": query, "image": body.get("image_url"), "now": now},
             )
             request_msg_id = res.lastrowid
 
@@ -457,7 +470,7 @@ async def chat_stream(
             full_response = ""
             ai_output = {}
 
-            async for chunk in generate_ai_response_streaming(query, thread_id):
+            async for chunk in generate_ai_response_streaming(query, thread_id, body.get("image_url")):
                 if chunk.get("content"):
                     full_response += chunk["content"]
                     # Django로 청크 전송
