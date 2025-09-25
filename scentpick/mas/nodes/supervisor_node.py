@@ -21,11 +21,13 @@ logger = logging.getLogger(__name__)
 ALLOWED = {
     "LLM_parser",
     "FAQ_agent",
-    "human_fallback",
+    "human_fallback", 
     "price_agent",
     "ML_agent",
     "memory_echo",
     "rec_echo",
+    "review_agent",  # <- review_agent_node가 아니라 review_agent
+    "multimodal_agent",
 }
 
 def _build_rec_context(state: AgentState, max_items: int = 5) -> str:
@@ -79,12 +81,19 @@ def supervisor_node(state: AgentState) -> AgentState:
     ])
     chain = prompt | llm  # (권장) llm 온도는 0~0.2
 
+    image_url = state.get("image_url")
+
+    # 강제 가드: 이미지 있으면 무조건 multimodal_agent
+    if image_url:
+        return {"next": "multimodal_agent", "router_json": {"forced": True}}
+
     try:
         ai = chain.invoke({
             "system": SUPERVISOR_SYSTEM_PROMPT,
             "query": user_query,
             "rec_context": rec_context,
             "last_agent": last_agent,
+            "image_url": state.get("image_url"),
         })
         raw = getattr(ai, "content", "") if ai is not None else ""
     except Exception as e:
