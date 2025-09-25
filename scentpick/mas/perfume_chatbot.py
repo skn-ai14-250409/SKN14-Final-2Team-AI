@@ -12,6 +12,7 @@ from .nodes.memory_echo_node import memory_echo_node
 from .nodes.rec_echo_node import rec_echo_node   # ← 추가
 from .nodes.review_agent_node import review_agent_node, is_review_agent_query # yyh
 from .state import AgentState
+from .nodes.multimodal_agent_node import multimodal_agent_node
 
 # ---------- Build Graph ----------
 graph = StateGraph(AgentState)
@@ -26,6 +27,7 @@ graph.add_node("ML_agent", ML_agent_node)
 graph.add_node("memory_echo", memory_echo_node)
 graph.add_node("rec_echo", rec_echo_node)  # ← 추가
 graph.add_node("review_agent", review_agent_node)
+graph.add_node("multimodal_agent", multimodal_agent_node)
 
 # 시작점
 graph.set_entry_point("supervisor")
@@ -47,7 +49,7 @@ graph.add_conditional_edges(
         "memory_echo": "memory_echo",
         "rec_echo": "rec_echo", # ← 추가
         "review_agent": "review_agent", # yyh
-        
+        "multimodal_agent": "multimodal_agent",
     },
 )
 
@@ -61,6 +63,7 @@ for node in [
     "memory_echo",
     "rec_echo",  # ← 추가
     "review_agent", # yyh
+    "multimodal_agent",
 ]:
     graph.add_edge(node, END)
 
