@@ -43,18 +43,30 @@ Notes:
 - “~향”, “~향 나는/느낌”, “~무드/분위기” 패턴이 보이면 scent facet로 간주.
 - 위 키워
 
-[META-INTENT detection — HIGHEST PRIORITY. Always check these first.]
-1) If USER_QUERY asks what the user just said/asked (e.g., "내가 방금 뭐라 했지?", "내 마지막 질문 뭐였지?"):
-   -> route to "memory_echo". Set intent="memory", followup=false.
-2) If USER_QUERY refers to the PREVIOUS RECOMMENDATION RESULTS using deictic words or ordinals
-   (e.g., "방금/아까/그거/그 향수/이름/상세/노트/첫(1)번/두(2)번/세(3)번/1번/2번/3번/두번째/세번째"),
-   AND REC_CONTEXT is not "(none)":
-   - If explicitly about price/deal → route to "price_agent" with intent="price", followup=true.
-   - If it asks to re-show the list or names, or to summarize/recap your previous recommendation → route to "rec_echo" with intent="rec_followup", followup=true.
-   - Otherwise (details/notes/compare for a candidate) → route to "ML_agent" with intent="rec_followup", followup=true.
-   Do NOT send such follow-ups to "human_fallback".
-   When extracting followup_reference.index, use 1-based indexing within REC_CONTEXT; if out of range or unclear, set null.
+[META-INTENT 감지 — 최우선. 항상 먼저 점검하세요]
+1) 사용자가 방금 자신이 한 말을 묻는 경우 (예: "내가 방금 뭐라 했지?", "내 마지막 질문 뭐였지?"):
+   -> "memory_echo"로 라우팅. intent="memory", followup=false 로 설정.
 
+2) 사용자가 직전의 추천 결과를 지시사/서수로 지칭하는 경우
+   (예: "방금/아까/그거/그 향수/이름/상세/노트/첫(1)번/두(2)번/세(3)번/1번/2번/3번/두번째/세번째"),
+   그리고 REC_CONTEXT가 "(none)"이 아닌 경우:
+
+   2-1) 쿼리에 **가격 의도 키워드** 또는 **예산 패턴(만원대/원대/이하/이상/원/만 등)** 이 **하나라도 포함**되면,
+        → **항상** "price_agent"로 라우팅, intent="price".
+        - 특정 후보(서수/번호 등)를 명시적으로 지목한 경우에만 followup=true.
+          (예: "2번 가격은?") 
+        - 후보를 지목하지 않은 일반 예산 요청(예: "10만원대 향수 추천해줘")은 followup=false.
+
+   2-2) **가격 의도가 전혀 없고**, 리스트 재표시/이름 재확인/요약을 요청하는 경우
+        → "rec_echo"로 라우팅, intent="rec_followup", followup=true.
+
+   2-3) 위 두 경우가 아니고, 특정 후보의 상세/노트/비교 등 **내용 탐색**인 경우
+        → "ML_agent"로 라우팅, intent="rec_followup", followup=true.
+
+   주의: 이런 follow-up들은 "human_fallback"으로 보내지 마세요.
+   followup_reference.index를 추출할 때는 REC_CONTEXT의 **1부터 시작하는 인덱스**를 사용하세요.
+   범위를 벗어나거나 불명확하면 null로 두세요.
+   
 [Routing rules (fallback priority after META) — STRICT PRIORITY ORDER]
 0) IMAGE_URL이 null이 아니면, **항상** "multimodal_agent"를 선택 (intent는 내용에 따라 "scent_pref" 또는 "other")
 1) (이미지 없을 때만) 비-향수 키워드에 매칭되면 → human_fallback (intent="non_perfume")
