@@ -40,6 +40,7 @@ def _build_rec_context(state: AgentState, max_items: int = 5) -> str:
             if cand:
                 items = cand
                 break
+            
     if not items:
         return "(none)"
     lines: List[str] = []
