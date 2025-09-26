@@ -22,7 +22,8 @@ pinecone_api_key = os.getenv("PINECONE_API_KEY")
 # 파인콘 초기화
 pc = Pinecone(api_key=pinecone_api_key)
 REVIEW_INDEX_NAME = "review-vectordb"
-PERFUME_INDEX_NAME = "perfume-vectordb"
+# 🔁 벡터DB2 사용
+PERFUME_INDEX_NAME = "perfume-vectordb2"
 review_index = pc.Index(REVIEW_INDEX_NAME)
 perfume_index = pc.Index(PERFUME_INDEX_NAME)
 
@@ -32,16 +33,6 @@ MIN_SIMILARITY_THRESHOLD = None
 # ---------------------------
 # 헬퍼
 # ---------------------------
-def _to_int_ml(v):
-    try:
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            return int(v)
-        s = str(v).lower().replace("ml", "").strip()
-        return int(float(s))
-    except Exception:
-        return None
 
 def _get_meta(meta: dict, *keys, default: Optional[str] = "") -> str:
     """여러 키 후보 중 먼저 매칭되는 값을 반환."""
@@ -49,9 +40,65 @@ def _get_meta(meta: dict, *keys, default: Optional[str] = "") -> str:
         return default or ""
     for k in keys:
         val = meta.get(k)
-        if val:
+        if val is not None:
             return str(val)
     return default or ""
+
+def _get_from_dotpath(d: dict, dotkey: str) -> Optional[Any]:
+    """
+    중첩 dict에서 'a.b.c' 형태 경로로 안전하게 값 추출.
+    존재하지 않으면 None.
+    """
+    try:
+        cur = d
+        for part in dotkey.split("."):
+            if not isinstance(cur, dict) or part not in cur:
+                return None
+            cur = cur[part]
+        return cur
+    except Exception:
+        return None
+
+def _get_from_paths(meta: dict, paths: List[str]) -> Optional[Any]:
+    """여러 후보 도트경로 중 먼저 성공하는 값을 반환."""
+    if not meta:
+        return None
+    for p in paths:
+        v = _get_from_dotpath(meta, p) if "." in p else meta.get(p)
+        if v is not None and (not isinstance(v, str) or v.strip() != ""):
+            return v
+    return None
+
+def _to_int_str(v: Any) -> Optional[str]:
+    """376, '376', 376.0 -> '376' 로 정규화. 실패 시 None."""
+    if v is None:
+        return None
+    try:
+        return str(int(float(v)))
+    except Exception:
+        return None
+
+def _get_no_as_intstr(meta: dict) -> Optional[str]:
+    """
+    vectordb2 메타에서 내부 링크용 id로 쓸 'no'를 꺼내 정수문자열로 변환.
+    우선순위: p.no -> perfume_data.no -> no
+    """
+    candidate = _get_from_paths(meta, ["p.no", "perfume_data.no", "no"])
+    return _to_int_str(candidate)
+
+def _get_any_id(meta: dict, *keys) -> Optional[str]:
+    """
+    Pinecone metadata에서 id 유사 키를 문자열로 뽑아냄 (fallback).
+    예: ("id", "perfume_id", "pid")
+    """
+    if not meta:
+        return None
+    for k in keys:
+        if k in meta and meta[k] is not None:
+            s = str(meta[k]).strip()
+            if s != "":
+                return s
+    return None
 
 def get_openai_embedding(text: str) -> List[float]:
     """OpenAI 임베딩 모델로 텍스트 벡터화"""
@@ -141,7 +188,7 @@ def analyze_rag_results(scent_description: str, rag_results: List[Dict]) -> Dict
             c = c[:600] + " ..."
         rag_text += f"{i}. {b} {n}: {c}\n"
 
-    # 🔧 중괄호 이스케이프
+    # 🔧 예시 JSON 중괄호 이스케이프 필수
     prompt = ChatPromptTemplate.from_messages([
         ("system", """다음은 향수 리뷰 데이터베이스에서 검색된 결과입니다.
 사용자가 원하는 향의 특성을 분석해서 JSON으로 반환해주세요.
@@ -172,12 +219,12 @@ def analyze_rag_results(scent_description: str, rag_results: List[Dict]) -> Dict
         return {"analyzed_scent": scent_description, "confidence": 0.0}
 
 def search_perfume_vectordb(analyzed_scent: str, top_k: int = 10) -> List[Dict[str, Any]]:
-    """perfume-vectordb에서 분석된 향 특성으로 유사도 검색"""
+    """perfume-vectordb2에서 분석된 향 특성으로 유사도 검색"""
     try:
         query_embedding = get_openai_embedding(analyzed_scent)
         results = perfume_index.query(
             vector=query_embedding,
-            top_k=top_k,              # 3 -> 10
+            top_k=top_k,
             include_metadata=True
         )
         matches = results.get("matches") or []
@@ -198,7 +245,12 @@ def search_perfume_vectordb(analyzed_scent: str, top_k: int = 10) -> List[Dict[s
                 if score < MIN_SIMILARITY_THRESHOLD:
                     continue
 
+            # ✅ vectordb2: p.no → id 로 사용 (없으면 perfume_data.no → no → 기타 키)
+            id_from_no = _get_no_as_intstr(meta)
+            pid = id_from_no or _get_any_id(meta, "id", "perfume_id", "pid")
+
             perfumes.append({
+                "id": pid,  # 내부 링크용
                 "brand": _get_meta(meta, "brand", "Brand"),
                 "name":  _get_meta(meta, "name", "Name", "title"),
                 "score": float(score or 0.0),
@@ -210,7 +262,9 @@ def search_perfume_vectordb(analyzed_scent: str, top_k: int = 10) -> List[Dict[s
         if not perfumes:
             for match in matches[:3]:
                 meta = match.get("metadata", {}) or {}
+                pid = _get_no_as_intstr(meta) or _get_any_id(meta, "id", "perfume_id", "pid")
                 perfumes.append({
+                    "id": pid,
                     "brand": _get_meta(meta, "brand", "Brand"),
                     "name":  _get_meta(meta, "name", "Name", "title"),
                     "score": float(match.get("score") or 0.0),
@@ -266,6 +320,8 @@ def check_prices_and_filter(perfume_list: List[Dict], budget_info: Dict) -> List
                 title = cheapest_item.get("title")
                 link  = cheapest_item.get("link") or cheapest_item.get("url")
 
+                # ✅ id 그대로 보존 (price_tool은 id를 주지 않으므로 우리가 받은 걸 유지)
+                perfume["id"] = perfume.get("id")
                 perfume["price"] = price
                 perfume["price_title"] = title
                 perfume["detail_url"] = link
@@ -293,6 +349,7 @@ def check_prices_and_filter(perfume_list: List[Dict], budget_info: Dict) -> List
             else:
                 logger.warning(f"[check_prices_and_filter] No price items for {brand} {name}")
                 if not budget_info:
+                    perfume["id"] = perfume.get("id")
                     perfume["price"] = None
                     perfume["price_title"] = "가격 정보 없음"
                     budget_matched.append(perfume)
@@ -300,6 +357,7 @@ def check_prices_and_filter(perfume_list: List[Dict], budget_info: Dict) -> List
         except Exception as e:
             logger.exception(f"[check_prices_and_filter] price_tool failed for {brand} {name}: {e}")
             if not budget_info:
+                perfume["id"] = perfume.get("id")
                 perfume["price"] = None
                 perfume["price_title"] = "가격 조회 실패"
                 budget_matched.append(perfume)
@@ -353,10 +411,10 @@ def generate_perfume_response(budget_matched: List[Dict], budget_info: Dict, sce
         lines.append(f"   🎯 유사도: {score:.2f}\n")
 
         rec_items.append({
+            "id": p.get("id"),                 # 내부링크용 id (p.no 기반 정수 문자열)
             "brand": brand,
             "name": name,
-            "detail_url": p.get("detail_url"),
-            # 리뷰노드는 사이즈 선택 필수 아님
+            "detail_url": p.get("detail_url"), # 외부 링크(있을 경우)
         })
 
     footer = (
@@ -440,7 +498,7 @@ def review_agent_node(state: AgentState) -> AgentState:
         analysis_result = analyze_rag_results(scent_description, rag_results)
         analyzed_scent = analysis_result["analyzed_scent"]
 
-        # 4) 향수 후보
+        # 4) 향수 후보 (id는 p.no 기반)
         perfume_candidates = search_perfume_vectordb(analyzed_scent)
         if not perfume_candidates:
             llm_response = generate_final_llm_response(user_query, scent_description, price_query)
@@ -454,15 +512,16 @@ def review_agent_node(state: AgentState) -> AgentState:
                 "last_agent": "review_agent"
             }
 
-        # 5) 리스트 정리
+        # 5) 리스트 정리 (id 포함)
         perfume_list = [{
+            "id": p.get("id"),            # p.no → 정수 문자열
             "brand": p.get("brand", ""),
             "name": p.get("name", ""),
             "score": p.get("score", 0.0),
             "size_ml": p.get("size_ml"),
         } for p in perfume_candidates]
 
-        # 6) 가격 조회 + 예산 필터
+        # 6) 가격 조회 + 예산 필터 (id 유지)
         budget_matched = check_prices_and_filter(perfume_list, budget_info)
 
         # 7) 응답 생성
@@ -473,13 +532,13 @@ def review_agent_node(state: AgentState) -> AgentState:
             entry = {
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "source": "review_agent",
-                "items": rec_items,  # rec_echo 사용
+                "items": rec_items,  # rec_echo 사용 (id 포함)
             }
 
             return {
                 "messages": [AIMessage(content=summary)],
                 "final_answer": summary,
-                "perfume_list": budget_matched,     # 프론트 노출
+                "perfume_list": budget_matched,     # 프론트 노출 (id 포함)
                 "search_results": {"matches": []},  # 중복 복구 방지
                 "rec_history": [entry],             # rec_echo 호환
                 "last_agent": "review_agent",
