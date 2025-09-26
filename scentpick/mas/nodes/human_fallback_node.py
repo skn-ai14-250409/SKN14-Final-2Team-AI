@@ -11,6 +11,7 @@ def human_fallback_node(state: AgentState) -> AgentState:
     if not user_query:
         user_query = "(empty)"
     
+    print(f"🔍 human_fallback 실행: {user_query}")
     fallback_response = (
         f"💬 ScentPick 챗봇은 향수에 관한 질문에 답변하는 전용 챗봇입니다.\n"
         f"❓ '{user_query}' 해당 질문은 향수와 직접 관련이 없어 답변드리기 어려워요.\n"

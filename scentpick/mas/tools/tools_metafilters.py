@@ -1,64 +1,154 @@
 # 메타필터 함수들
 import re
+from ..tools.brand_utils import BRAND_ALIASES, CONC_SYNONYMS
+
+# def filter_brand(brand_value):
+#     valid_brands = [
+#         '겔랑', '구찌', '끌로에', '나르시소 로드리게즈', '니샤네', '도르세', '디올', '딥티크', '랑콤',
+#         '로라 메르시에', '로에베', '록시땅', '르 라보', '메모', '메종 마르지엘라', '메종 프란시스 커정',
+#         '멜린앤게츠', '미우미우', '바이레도', '반클리프 아펠', '버버리', '베르사체', '불가리', '비디케이',
+#         '산타 마리아 노벨라', '샤넬', '세르주 루텐', '시슬리 코스메틱', '아쿠아 디 파르마', '에따 리브르 도량쥬',
+#         '에르메스', '에스티 로더', '엑스 니힐로', '이니시오 퍼퓸', '이솝', '입생로랑', '제르조프', '조 말론',
+#         '조르지오 아르마니', '줄리엣 헤즈 어 건', '지방시', '질 스튜어트', '크리드', '킬리안', '톰 포드',
+#         '티파니앤코', '퍼퓸 드 말리', '펜할리곤스', '프라다', '프레데릭 말'
+#     ]
+#     if brand_value is None:
+#         return None
+#     return brand_value if brand_value in valid_brands else None
+
+# def filter_concentration(concentration_value):
+#     valid_concentrations = ['솔리드 퍼퓸', '엑스트레 드 퍼퓸', '오 드 뚜왈렛', '오 드 코롱', '오 드 퍼퓸', '퍼퓸']
+#     if concentration_value is None:
+#         return None
+#     return concentration_value if concentration_value in valid_concentrations else None
+
+# def filter_day_night_score(day_night_value):
+#     valid_day_night = ["day", "night"]
+#     if day_night_value is None:
+#         return None
+#     if isinstance(day_night_value, str) and ',' in day_night_value:
+#         values = [v.strip() for v in day_night_value.split(',')]
+#         filtered_values = [v for v in values if v in valid_day_night]
+#         return ','.join(filtered_values) if filtered_values else None
+#     return day_night_value if day_night_value in valid_day_night else None
+
+# def filter_gender(gender_value):
+#     valid_genders = ['Female', 'Male', 'Unisex', 'unisex ']
+#     if gender_value is None:
+#         return None
+#     return gender_value if gender_value in valid_genders else None
+
+# def filter_season_score(season_value):
+#     valid_seasons = ['winter', 'spring', 'summer', 'fall']
+#     if season_value is None:
+#         return None
+#     return season_value if season_value in valid_seasons else None
+
+# def filter_sizes(sizes_value):
+#     valid_sizes = ['30', '50', '75', '100', '150']
+#     if sizes_value is None:
+#         return None
+#     if isinstance(sizes_value, str):
+#         numbers = re.findall(r'\d+', sizes_value)
+#         for num in numbers:
+#             if num in valid_sizes:
+#                 return num
+#     return str(sizes_value) if str(sizes_value) in valid_sizes else None
 
 def filter_brand(brand_value):
-    valid_brands = [
-        '겔랑', '구찌', '끌로에', '나르시소 로드리게즈', '니샤네', '도르세', '디올', '딥티크', '랑콤',
-        '로라 메르시에', '로에베', '록시땅', '르 라보', '메모', '메종 마르지엘라', '메종 프란시스 커정',
-        '멜린앤게츠', '미우미우', '바이레도', '반클리프 아펠', '버버리', '베르사체', '불가리', '비디케이',
-        '산타 마리아 노벨라', '샤넬', '세르주 루텐', '시슬리 코스메틱', '아쿠아 디 파르마', '에따 리브르 도량쥬',
-        '에르메스', '에스티 로더', '엑스 니힐로', '이니시오 퍼퓸', '이솝', '입생로랑', '제르조프', '조 말론',
-        '조르지오 아르마니', '줄리엣 헤즈 어 건', '지방시', '질 스튜어트', '크리드', '킬리안', '톰 포드',
-        '티파니앤코', '퍼퓸 드 말리', '펜할리곤스', '프라다', '프레데릭 말'
-    ]
     if brand_value is None:
         return None
-    return brand_value if brand_value in valid_brands else None
+    v = str(brand_value).replace(" ", "")
+    for std, aliases in BRAND_ALIASES.items():
+        # 별칭 매칭
+        if v in [a.replace(" ", "") for a in aliases + [std]]:
+            return std
+    return None
+
+
 
 def filter_concentration(concentration_value):
-    valid_concentrations = ['솔리드 퍼퓸', '엑스트레 드 퍼퓸', '오 드 뚜왈렛', '오 드 코롱', '오 드 퍼퓸', '퍼퓸']
     if concentration_value is None:
         return None
-    return concentration_value if concentration_value in valid_concentrations else None
+    v = str(concentration_value).replace(" ", "")
+    for std, aliases in CONC_SYNONYMS.items():
+        # std(표준 라벨)도 포함해서 매칭
+        if v in [a.replace(" ", "") for a in aliases + [std]]:
+            return std
+    return None
+
+
 
 def filter_day_night_score(day_night_value):
-    valid_day_night = ["day", "night"]
-    if day_night_value is None:
+    valid_day_night = ["day","night"]
+    if not day_night_value:
         return None
-    if isinstance(day_night_value, str) and ',' in day_night_value:
-        values = [v.strip() for v in day_night_value.split(',')]
-        filtered_values = [v for v in values if v in valid_day_night]
-        return ','.join(filtered_values) if filtered_values else None
-    return day_night_value if day_night_value in valid_day_night else None
+    # 정규화
+    mapping = {"낮":"day","밤":"night"}
+    if day_night_value in mapping:
+        v = mapping[day_night_value]
+    else:
+        v = str(day_night_value).strip()
+    # 필터
+    if "," in v:
+        values = [x.strip() for x in v.split(",")]
+        filtered = [x for x in values if x in valid_day_night]
+        return ",".join(filtered) if filtered else None
+    return v if v in valid_day_night else None
 
 def filter_gender(gender_value):
-    valid_genders = ['Female', 'Male', 'Unisex', 'unisex ']
-    if gender_value is None:
+    valid_genders = ['Female','Male','Unisex']
+    if not gender_value:
         return None
-    return gender_value if gender_value in valid_genders else None
+    mapping = {"남성":"Male","여성":"Female","남녀공용":"Unisex","공용":"Unisex"}
+    v = mapping.get(str(gender_value).strip(), str(gender_value).strip())
+    return v if v in valid_genders else None
 
 def filter_season_score(season_value):
-    valid_seasons = ['winter', 'spring', 'summer', 'fall']
-    if season_value is None:
+    valid_seasons = ['winter','spring','summer','fall']
+    if not season_value:
         return None
-    return season_value if season_value in valid_seasons else None
+    mapping = {"봄":"spring","여름":"summer","가을":"fall","겨울":"winter"}
+    v = mapping.get(str(season_value).strip(), str(season_value).strip())
+    return v if v in valid_seasons else None
 
 def filter_sizes(sizes_value):
-    valid_sizes = ['30', '50', '75', '100', '150']
-    if sizes_value is None:
+    valid_sizes = ['30','50','75','100','150']
+    if not sizes_value:
         return None
-    if isinstance(sizes_value, str):
-        numbers = re.findall(r'\d+', sizes_value)
+    # 정규화
+    s = str(sizes_value).lower().replace("ml","").strip()
+    # 숫자만 추출
+    import re
+    numbers = re.findall(r'\d+', s)
+    if numbers:
         for num in numbers:
             if num in valid_sizes:
                 return num
-    return str(sizes_value) if str(sizes_value) in valid_sizes else None
+    return s if s in valid_sizes else None
+
+def filter_sizes(sizes_value):
+    valid_sizes = ['30','50','75','100','150']
+    if not sizes_value:
+        return None
+    # 정규화
+    s = str(sizes_value).lower().replace("ml","").strip()
+    # 숫자만 추출
+    import re
+    numbers = re.findall(r'\d+', s)
+    if numbers:
+        for num in numbers:
+            if num in valid_sizes:
+                return num
+    return s if s in valid_sizes else None
+
 
 def apply_meta_filters(parsed_json: dict) -> dict:
-    """파싱된 JSON에 메타price링 적용"""
+    """파싱된 JSON에 메타필터링 적용"""
     if not parsed_json or "error" in parsed_json:
         return parsed_json
-    
+
+    # yyh 250925
     return {
         'brand': filter_brand(parsed_json.get('brand')),
         'concentration': filter_concentration(parsed_json.get('concentration')),
@@ -67,9 +157,21 @@ def apply_meta_filters(parsed_json: dict) -> dict:
         'season_score': filter_season_score(parsed_json.get('season_score')),
         'sizes': filter_sizes(parsed_json.get('sizes'))
     }
+    # result = {
+    #     'brand': filter_brand(parsed_json.get('brand')),
+    #     'concentration': filter_concentration(parsed_json.get('concentration')),
+    #     'day_night_score': filter_day_night_score(parsed_json.get('day_night_score')),
+    #     'gender': filter_gender(parsed_json.get('gender')),
+    #     'season_score': filter_season_score(parsed_json.get('season_score')),
+    #     'sizes': filter_sizes(parsed_json.get('sizes'))
+    # }
+
+    # return result
+
+    # yyh
 
 def build_pinecone_filter(filtered_json: dict) -> dict:
-    """메타price링 결과를 Pinecone filter dict로 변환"""
+    """메타필터링 결과를 Pinecone filter dict로 변환"""
     pinecone_filter = {}
     if filtered_json.get("brand"):
         pinecone_filter["brand"] = {"$eq": filtered_json["brand"]}
@@ -79,8 +181,10 @@ def build_pinecone_filter(filtered_json: dict) -> dict:
         pinecone_filter["season_score"] = {"$eq": filtered_json["season_score"]}
     if filtered_json.get("gender"):
         pinecone_filter["gender"] = {"$eq": filtered_json["gender"]}
+
     if filtered_json.get("concentration"):
         pinecone_filter["concentration"] = {"$eq": filtered_json["concentration"]}
+        
     if filtered_json.get("day_night_score"):
         pinecone_filter["day_night_score"] = {"$eq": filtered_json["day_night_score"]}
     return pinecone_filter
