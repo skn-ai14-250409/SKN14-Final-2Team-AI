@@ -1,6 +1,6 @@
 # 메타필터 함수들
 import re
-from ..tools.brand_utils import BRAND_ALIASES
+from ..tools.brand_utils import BRAND_ALIASES, CONC_SYNONYMS
 
 # def filter_brand(brand_value):
 #     valid_brands = [
@@ -66,12 +66,17 @@ def filter_brand(brand_value):
     return None
 
 
+
 def filter_concentration(concentration_value):
-    valid_concentrations = ['솔리드 퍼퓸','엑스트레 드 퍼퓸','오 드 뚜왈렛','오 드 코롱','오 드 퍼퓸','퍼퓸']
-    if not concentration_value:
+    if concentration_value is None:
         return None
-    v = str(concentration_value).strip()
-    return v if v in valid_concentrations else None
+    v = str(concentration_value).replace(" ", "")
+    for std, aliases in CONC_SYNONYMS.items():
+        # std(표준 라벨)도 포함해서 매칭
+        if v in [a.replace(" ", "") for a in aliases + [std]]:
+            return std
+    return None
+
 
 
 def filter_day_night_score(day_night_value):
@@ -139,7 +144,7 @@ def filter_sizes(sizes_value):
 
 
 def apply_meta_filters(parsed_json: dict) -> dict:
-    """파싱된 JSON에 메타price링 적용"""
+    """파싱된 JSON에 메타필터링 적용"""
     if not parsed_json or "error" in parsed_json:
         return parsed_json
 
@@ -176,8 +181,10 @@ def build_pinecone_filter(filtered_json: dict) -> dict:
         pinecone_filter["season_score"] = {"$eq": filtered_json["season_score"]}
     if filtered_json.get("gender"):
         pinecone_filter["gender"] = {"$eq": filtered_json["gender"]}
+
     if filtered_json.get("concentration"):
         pinecone_filter["concentration"] = {"$eq": filtered_json["concentration"]}
+        
     if filtered_json.get("day_night_score"):
         pinecone_filter["day_night_score"] = {"$eq": filtered_json["day_night_score"]}
     return pinecone_filter

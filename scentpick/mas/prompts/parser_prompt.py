@@ -23,7 +23,7 @@ parse_prompt = ChatPromptTemplate.from_messages([
 - gender: 성별 (남성, 여성, 유니섹스)
 - season_score: 계절 (봄, 여름, 가을, 겨울)
 - sizes: 용량 (30ml, 50ml, 100ml 등) 단위는 무시하고 숫자만
-- recommendation_count: 추천 개수 (숫자만 추출해줘. 예: ~ 향수 5개 추천해줘 → 5, 향수 다섯개 추천해줘 → 5)
+- recommendation_count: 추천 개수 (default : null, 숫자만 추출해줘. 예: ~ 향수 5개 추천해줘 → 5, 향수 다섯개 추천해줘 → 5)
 
 없는 값은 null로 두고, 반드시 유효한 JSON 형식으로만 응답해줘.
 

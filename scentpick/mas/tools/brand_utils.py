@@ -165,9 +165,51 @@ BRAND_LIST = [
     '티파니앤코', '퍼퓸 드 말리', '펜할리곤스', '프라다', '프레데릭 말'
 ]
 
+# -----------------------------------------
+# Concentration (부향률) 별칭 테이블 (정규화는 tools_metafilters에서)
+# 표준 라벨: "오 드 퍼퓸", "오 드 뚜왈렛", "오 드 꼴로뉴", "파르펭", "미스트", "엘릭시르"
+# -----------------------------------------
+# brand_utils.py (일부) - CSV 라벨을 "표준 키"로 사용
+# brand_utils.py — concentration 표준 라벨을 CSV의 실제 값 6개로 고정
 CONC_SYNONYMS = {
-    "오 드 퍼퓸": ["오 드 퍼퓸", "오드퍼퓸", "EDP", "eau de parfum"],
-    "오 드 뚜왈렛": ["오 드 뚜왈렛", "오드뚜왈렛", "EDT", "eau de toilette"],
-    "오 드 꼴로뉴": ["오 드 꼴로뉴", "EDC", "eau de cologne"],
-    "파르펭": ["파르펭", "Parfum", "Extrait", "Extrait de Parfum"],
+    # 1) EDP
+    "오 드 퍼퓸": [
+        "오 드 퍼퓸","오드 퍼퓸","오드퍼퓸","오 드퍼퓸",
+        "edp","e.d.p",
+        "eau de parfum","eau-de-parfum","eaudeparfum","eau d e parfum"
+    ],
+
+    # 2) EDT
+    "오 드 뚜왈렛": [
+        "오 드 뚜왈렛","오드 뚜왈렛","오드뚜왈렛","오 드뚜왈렛",
+        "edt","e.d.t",
+        "eau de toilette","eau-de-toilette","eaudetoilette","eau d e toilette"
+    ],
+
+    # 3) EDC  (코롱/꼴로뉴 계열은 전부 여기로)
+    "오 드 코롱": [
+        "오 드 코롱","오드 코롱","오드코롱","코롱",
+        "오 드 꼴로뉴","오드 꼴로뉴","오드꼴로뉴","꼴로뉴",
+        "edc","e.d.c",
+        "eau de cologne","eau-de-cologne","eaudecologne","eau d e cologne"
+    ],
+
+    # 4) Extrait/Parfum 고농도 계열은 ‘엑스트레 드 퍼퓸’로 귀속
+    #   (⚠️ 'parfum' 단독은 아래 5) 퍼퓸으로 보냄)
+    "엑스트레 드 퍼퓸": [
+        "엑스트레 드 퍼퓸","엑스트레","익스트레 드 퍼퓸","익스트레",
+        "파르펭","parfum extrait","extrait","extrait de parfum","pure parfum","parfum pure",
+        "ex trait","extraitdeparfum","pureparfum"
+    ],
+
+    # 5) 일반 '퍼퓸' (데이터에 실재 라벨이므로 분리 유지)
+    "퍼퓸": [
+        "퍼퓸","parfum","par f um","parfum.",
+    ],
+
+    # 6) 솔리드/밤 타입
+    "솔리드 퍼퓸": [
+        "솔리드 퍼퓸","solid perfume","solid","balm","perfume balm","solidperfume"
+    ],
 }
+
