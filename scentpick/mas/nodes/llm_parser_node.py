@@ -53,28 +53,70 @@ def LLM_parser_node(state: AgentState) -> AgentState:
         print(f"🔍 LLM_parser 실행: {user_query}")
 
         # 1) LLM 파싱
+        print(f"🔧 run_llm_parser 호출")
         parsed_json = run_llm_parser(user_query)
-        if "error" in parsed_json:
-            err = f"[LLM_parser] 쿼리 파싱 오류: {parsed_json['error']}"
-            return {"messages": [AIMessage(content=err)], "final_answer": err, "last_agent": "LLM_parser"}
-
-        print(f"🔍 파싱 결과: {json.dumps(parsed_json, ensure_ascii=False)}")
+        print(f"🔧 run_llm_parser 결과")
+        print(f"{json.dumps(parsed_json, ensure_ascii=False)}")
 
         # 2) 메타필터
+        print(f"🔧 apply_meta_filters 호출")
         filtered_json = apply_meta_filters(parsed_json)
+        print(f"🔧 apply_meta_filters 결과")
+        print(f"{json.dumps(filtered_json, ensure_ascii=False)}")
 
         # 3) 쿼리 벡터화
+        print(f"쿼리 벡터화")
         query_vector = embeddings.embed_query(user_query)
+        
 
         # 4) Pinecone 검색
+        print(f"pinecone 검색")
         n_recs = int(parsed_json.get("recommendation_count") or 3)  # 기본값 3
         search_results = query_pinecone(query_vector, filtered_json, top_k=n_recs)
         if hasattr(search_results, "to_dict"):
             search_results = search_results.to_dict()
+        print("Pinecone 검색 결과 (메타필터링 컬럼만)")
+        matches = (search_results or {}).get("matches", [])
+        if not matches:
+            print("결과 없음")
+        else:
+            for i, m in enumerate(matches, 1):
+                meta = m.get("metadata", {}) or {}
+                brand = meta.get("brand", "정보없음")
+                name = meta.get("name", "정보없음")
+                gender = meta.get("gender", "정보없음")
+                sizes = meta.get("sizes", "정보없음")
+                season = meta.get("season_score", "정보없음")
+                day_night = meta.get("day_night_score", "정보없음")
+                conc = meta.get("concentration", "정보없음")
+                
+                print(f"{i}. brand={brand}, name={name}, gender={gender}, size={sizes}ml, "
+                    f"season={season}, day_night={day_night}, conc={conc}")
+
 
         # 4-1) 추천 후보 추출 (rec_echo용 표준 스키마)
         preferred_size = parsed_json.get("sizes")
         candidates = _extract_candidates(search_results, preferred_size=preferred_size, top_n=n_recs)
+        print("추천 후보 (정제된 candidates):")
+        if not candidates:
+            print("결과 없음")
+        else:
+            for i, it in enumerate(candidates, 1):
+                brand = it.get("brand", "정보없음")
+                name  = it.get("name", "정보없음")
+                size  = it.get("size", "정보없음")
+                url   = it.get("detail_url") or ""
+                print(f"{i}. {brand} - {name} ({size}ml) {url}")
+
+        # 최종 응답용 문자열
+        final_response_lines = []
+        for i, it in enumerate(candidates, 1):
+            brand = it.get("brand", "정보없음")
+            name = it.get("name", "정보없음")
+            size = it.get("size", "정보없음")
+            line = f"{i}. {brand} - {name} ({size}ml)"
+            final_response_lines.append(line)
+
 
         # 5) 최종 사용자 답변 텍스트 생성
         final_response = generate_response(user_query, search_results, limit=n_recs)
