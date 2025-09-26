@@ -88,10 +88,10 @@ def LLM_parser_node(state: AgentState) -> AgentState:
                 sizes = meta.get("sizes", "정보없음")
                 season = meta.get("season_score", "정보없음")
                 day_night = meta.get("day_night_score", "정보없음")
-                conc = meta.get("concentration", "정보없음")
+                concentration = meta.get("concentration", "정보없음")
                 
                 print(f"{i}. brand={brand}, name={name}, gender={gender}, size={sizes}ml, "
-                    f"season={season}, day_night={day_night}, conc={conc}")
+                    f"season={season}, day_night={day_night}, concentration={concentration}")
 
 
         # 4-1) 추천 후보 추출 (rec_echo용 표준 스키마)
