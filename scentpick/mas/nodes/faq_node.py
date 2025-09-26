@@ -13,6 +13,7 @@ def FAQ_agent_node(state: AgentState) -> AgentState:
             break
 
     try:
+        print(f"🔍 FAQ_agent 실행: {user_query}")
         chain = faq_prompt | llm
         ai = chain.invoke({"question": user_query})
         body = getattr(ai, "content", str(ai))
